@@ -14,6 +14,35 @@ export default function MyDecks() {
   const [err, setErr] = useState<string | null>(null)
   const navigate = useNavigate()
 
+  const setCommander = async (deckId: string, name: string) => {
+  // 1) clear any existing commander
+  let { error: e1 } = await supabase
+    .from('deck_cards')
+    .update({ is_commander: false })
+    .eq('deck_id', deckId)
+  if (e1) return alert(e1.message)
+
+  // 2) set this card as commander
+  let { error: e2 } = await supabase
+    .from('deck_cards')
+    .update({ is_commander: true })
+    .eq('deck_id', deckId)
+    .eq('card_name', name)
+  if (e2) return alert(e2.message)
+
+  // refresh the visible list
+  showDeck(deckId)
+}
+
+const clearCommander = async (deckId: string) => {
+  const { error } = await supabase
+    .from('deck_cards')
+    .update({ is_commander: false })
+    .eq('deck_id', deckId)
+  if (error) return alert(error.message)
+  showDeck(deckId)
+}
+
   const loadDecks = async () => {
     setErr(null); setLoading(true)
     const { data, error } = await supabase
@@ -69,20 +98,35 @@ export default function MyDecks() {
       ))}
 
       {selId && cards && (
-        <div className="card">
-            <h3>Cards</h3>
-            <div className="grid">
-            {cards.map((c, i) => (
-                <div key={i}>
-                <CardThumb name={c.card_name} />
-                <div style={{marginTop:6, fontSize:12}}>
-                    {c.count} × {c.card_name}{c.is_commander ? ' (Commander)' : ''}
-                </div>
-                </div>
-            ))}
-            </div>
+  <div className="card">
+    <div style={{display:'flex', alignItems:'center', gap:8}}>
+      <h3 style={{margin:0}}>Cards</h3>
+      <button className="btn ghost" onClick={() => clearCommander(selId!)}>Clear commander</button>
+    </div>
+
+    <div className="grid" style={{marginTop:12}}>
+      {cards.map((c, i) => (
+        <div key={i}>
+          <CardThumb name={c.card_name} />
+          <div style={{marginTop:6, fontSize:12}}>
+            {c.count} × {c.card_name}{' '}
+            {c.is_commander ? '⭐ (Commander)' : ''}
+          </div>
+          {!c.is_commander && (
+            <button
+              className="btn mini"
+              onClick={() => setCommander(selId!, c.card_name)}
+              style={{marginTop:6}}
+            >
+              Set commander
+            </button>
+          )}
         </div>
-        )}
+      ))}
+    </div>
+  </div>
+)}
+
     </div>
   )
 }

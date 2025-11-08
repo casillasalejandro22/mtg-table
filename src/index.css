@@ -31,3 +31,5 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
 .thumb { display:block; background:#0f0f0f; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
 .thumb img { display:block; width:100%; height:auto; }
 .thumb-fallback { padding:8px; font-size:12px; color:var(--muted); min-height:170px; display:flex; align-items:center; justify-content:center; text-align:center }
+
+.btn.mini { padding:4px 8px; font-size:12px; border-radius:8px }
