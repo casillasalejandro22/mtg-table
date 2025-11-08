@@ -1,15 +1,31 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-type DeckCardRow = { card_name: string; count: number }
+type DeckCardRow = {
+  card_name: string
+  count: number
+  set_code?: string
+  collector_number?: string
+}
 
 function parseList(text: string): DeckCardRow[] {
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   const rows: DeckCardRow[] = []
   for (const line of lines) {
-    const m = line.match(/^(\d+)\s+(.+)$/)
-    if (!m) throw new Error(`Bad line format: "${line}" (use "1 Card Name")`)
-    rows.push({ count: parseInt(m[1], 10), card_name: m[2] })
+    // Supports:
+    // 1 Sol Ring
+    // 1x Sol Ring
+    // 1 Sol Ring (ltr) 224
+    // 1x Sol Ring (LTR) 224a
+    const m = line.match(/^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9\-]{2,5})\)\s+([\w\-]+))?$/i)
+    if (!m) throw new Error(`Bad line: "${line}" (use "1 Card" or "1x Card (set) 123")`)
+    const [, c, name, set, num] = m
+    rows.push({
+      count: parseInt(c, 10),
+      card_name: name,
+      set_code: set?.toLowerCase(),
+      collector_number: num
+    })
   }
   return rows
 }
@@ -57,7 +73,13 @@ export default function DeckImport() {
         if (deckErr) throw deckErr
         const id = deck.id as string
 
-        const toInsert = parsed.map(r => ({ deck_id: id, card_name: r.card_name, count: r.count }))
+        const toInsert = parsed.map(r => ({
+            deck_id: id,
+            card_name: r.card_name,
+            count: r.count,
+            set_code: r.set_code ?? null,
+            collector_number: r.collector_number ?? null
+            }))
         const { error: cardsErr } = await supabase.from('deck_cards')
           .upsert(toInsert, { onConflict: 'deck_id,card_name' })
         if (cardsErr) throw cardsErr
@@ -73,7 +95,13 @@ export default function DeckImport() {
         // Replace its cards: delete then insert fresh
         const { error: delErr } = await supabase.from('deck_cards').delete().eq('deck_id', deckId)
         if (delErr) throw delErr
-        const toInsert = parsed.map(r => ({ deck_id: deckId, card_name: r.card_name, count: r.count }))
+        const toInsert = parsed.map(r => ({
+            deck_id: deckId,
+            card_name: r.card_name,
+            count: r.count,
+            set_code: r.set_code ?? null,
+            collector_number: r.collector_number ?? null
+            }))
         const { error: insErr } = await supabase.from('deck_cards').insert(toInsert)
         if (insErr) throw insErr
 
