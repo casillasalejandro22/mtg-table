@@ -1,12 +1,10 @@
-export type ImgPair = { small: string; normal: string }
+export type CardInfo = { small: string; normal: string; type_line: string }
 
-function cacheKey(name: string) {
-  return 'sf:' + name.toLowerCase().trim()
-}
+function key(name: string) { return 'sf:info:' + name.toLowerCase().trim() }
 
-export async function getCardImages(name: string): Promise<ImgPair | null> {
-  const key = cacheKey(name)
-  const cached = localStorage.getItem(key)
+export async function getCardInfo(name: string): Promise<CardInfo | null> {
+  const k = key(name)
+  const cached = localStorage.getItem(k)
   if (cached) return JSON.parse(cached)
 
   const fetchNamed = async (mode: 'exact' | 'fuzzy') => {
@@ -14,18 +12,15 @@ export async function getCardImages(name: string): Promise<ImgPair | null> {
     return r.ok ? r.json() : null
   }
 
-  try {
-    let data = await fetchNamed('exact')
-    if (!data) data = await fetchNamed('fuzzy')
-    if (!data) return null
+  let data = await fetchNamed('exact')
+  if (!data) data = await fetchNamed('fuzzy')
+  if (!data) return null
 
-    const img = data.image_uris ?? data.card_faces?.[0]?.image_uris
-    if (!img?.small || !img?.normal) return null
+  const iu = data.image_uris ?? data.card_faces?.[0]?.image_uris
+  const type_line = data.type_line ?? data.card_faces?.[0]?.type_line ?? ''
+  if (!iu?.small || !iu?.normal) return null
 
-    const pair: ImgPair = { small: img.small, normal: img.normal }
-    localStorage.setItem(key, JSON.stringify(pair))
-    return pair
-  } catch {
-    return null
-  }
+  const info: CardInfo = { small: iu.small, normal: iu.normal, type_line }
+  localStorage.setItem(k, JSON.stringify(info))
+  return info
 }

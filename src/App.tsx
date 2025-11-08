@@ -6,6 +6,7 @@ import AuthForm from './AuthForm'
 import Header from './components/Header'
 import DeckBuilderPage from './pages/DeckBuilderPage'
 import MyDecksPage from './pages/MyDecksPage'
+import DeckViewPage from './pages/DeckViewPage'
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -26,6 +27,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<DeckBuilderPage />} />
         <Route path="/decks" element={<MyDecksPage />} />
+        <Route path="/deck/:id" element={<DeckViewPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </>
