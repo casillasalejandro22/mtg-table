@@ -1,19 +1,23 @@
-export type CardInfo = { small: string; normal: string; type_line: string }
+export type ImgPair = { small: string; normal: string }
+export type CardInfo = ImgPair & { type_line: string }
 
-function key(name: string) { return 'sf:info:' + name.toLowerCase().trim() }
+function key(name: string, suffix = 'info') {
+  return `sf:${suffix}:${name.toLowerCase().trim()}`
+}
+
+async function fetchNamed(name: string) {
+  const exact = await fetch(`https://api.scryfall.com/cards/named?exact=${encodeURIComponent(name)}`)
+  if (exact.ok) return exact.json()
+  const fuzzy = await fetch(`https://api.scryfall.com/cards/named?fuzzy=${encodeURIComponent(name)}`)
+  return fuzzy.ok ? fuzzy.json() : null
+}
 
 export async function getCardInfo(name: string): Promise<CardInfo | null> {
-  const k = key(name)
+  const k = key(name, 'info')
   const cached = localStorage.getItem(k)
   if (cached) return JSON.parse(cached)
 
-  const fetchNamed = async (mode: 'exact' | 'fuzzy') => {
-    const r = await fetch(`https://api.scryfall.com/cards/named?${mode}=${encodeURIComponent(name)}`)
-    return r.ok ? r.json() : null
-  }
-
-  let data = await fetchNamed('exact')
-  if (!data) data = await fetchNamed('fuzzy')
+  const data = await fetchNamed(name)
   if (!data) return null
 
   const iu = data.image_uris ?? data.card_faces?.[0]?.image_uris
@@ -23,4 +27,9 @@ export async function getCardInfo(name: string): Promise<CardInfo | null> {
   const info: CardInfo = { small: iu.small, normal: iu.normal, type_line }
   localStorage.setItem(k, JSON.stringify(info))
   return info
+}
+
+export async function getCardImages(name: string): Promise<ImgPair | null> {
+  const info = await getCardInfo(name)
+  return info ? { small: info.small, normal: info.normal } : null
 }

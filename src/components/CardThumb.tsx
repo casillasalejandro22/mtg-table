@@ -6,13 +6,17 @@ export default function CardThumb({ name }: { name: string }) {
 
   useEffect(() => {
     let alive = true
-    getCardImages(name).then(v => { if (alive) setImg(v) })
+    getCardImages(name).then((v: ImgPair | null) => { if (alive) setImg(v) })
     return () => { alive = false }
   }, [name])
 
-  if (!img) return <div className="thumb">
-    <div className="thumb-fallback">{name}</div>
-  </div>
+  if (!img) {
+    return (
+      <div className="thumb">
+        <div className="thumb-fallback">{name}</div>
+      </div>
+    )
+  }
 
   return (
     <a className="thumb" href={img.normal} target="_blank" rel="noreferrer" title={name}>
