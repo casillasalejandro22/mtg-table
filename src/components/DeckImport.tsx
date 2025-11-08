@@ -22,15 +22,15 @@ export default function DeckImport() {
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<DeckCardRow[] | null>(null)
 
-  // Listen for "load-deck" from MyDecks → fill the form and switch to edit mode
-  useEffect(() => {
-    const handler = (e: any) => {
-      const { id, name, list_text } = e.detail
-      setDeckId(id); setName(name); setListText(list_text)
-      setRows(null)
+    useEffect(() => {
+    const raw = localStorage.getItem('edit-deck')
+    if (raw) {
+      try {
+        const d = JSON.parse(raw)
+        setDeckId(d.id); setName(d.name); setListText(d.list_text); setRows(null)
+      } catch {}
+      localStorage.removeItem('edit-deck')
     }
-    window.addEventListener('load-deck', handler as any)
-    return () => window.removeEventListener('load-deck', handler as any)
   }, [])
 
   const doSignOut = async () => {

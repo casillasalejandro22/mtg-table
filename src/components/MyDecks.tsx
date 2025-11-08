@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import CardThumb from './CardThumb'
 
 type Deck = { id: string; name: string; created_at: string }
 type CardRow = { card_name: string; count: number; is_commander: boolean }
@@ -10,18 +12,17 @@ export default function MyDecks() {
   const [selId, setSelId] = useState<string | null>(null)
   const [cards, setCards] = useState<CardRow[] | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   const loadDecks = async () => {
     setErr(null); setLoading(true)
     const { data, error } = await supabase
-      .from('decks')
-      .select('id,name,created_at')
+      .from('decks').select('id,name,created_at')
       .order('created_at', { ascending: false })
     if (error) setErr(error.message)
     setDecks(data ?? [])
     setLoading(false)
   }
-
   useEffect(() => { loadDecks() }, [])
 
   const showDeck = async (id: string) => {
@@ -47,37 +48,41 @@ export default function MyDecks() {
     const { data, error } = await supabase
       .from('decks').select('id,name,list_text').eq('id', id).single()
     if (error || !data) return alert(error?.message ?? 'Deck not found')
-    // Tell the importer to load this deck into the form for editing
-    window.dispatchEvent(new CustomEvent('load-deck', { detail: data }))
-    // Also show its current cards
-    showDeck(id)
+    // stash for builder page to pick up
+    localStorage.setItem('edit-deck', JSON.stringify(data))
+    navigate('/') // go to builder
   }
 
   return (
-    <div style={{ display:'grid', gap:8 }}>
-      <h3>My Decks</h3>
+    <div className="stack">
       {loading && <div>Loading…</div>}
-      {err && <div style={{color:'salmon'}}>{err}</div>}
+      {err && <div className="error">{err}</div>}
+
       {decks.map(d => (
-        <div key={d.id} style={{display:'flex', gap:8, alignItems:'center'}}>
-          <button onClick={() => showDeck(d.id)}>{d.name}</button>
-          <small>{new Date(d.created_at).toLocaleString()}</small>
-          <button onClick={() => editDeck(d.id)}>Edit</button>
-          <button onClick={() => delDeck(d.id)}>Delete</button>
+        <div key={d.id} className="row">
+          <button className="btn" onClick={() => showDeck(d.id)}>{d.name}</button>
+          <small className="muted">{new Date(d.created_at).toLocaleString()}</small>
+          <div className="spacer" />
+          <button className="btn ghost" onClick={() => editDeck(d.id)}>Edit</button>
+          <button className="btn danger" onClick={() => delDeck(d.id)}>Delete</button>
         </div>
       ))}
+
       {selId && cards && (
-        <div>
-          <h4>Cards in selected deck</h4>
-          <ul>
-            {cards.map((c,i)=>(
-              <li key={i}>
-                {c.count} × {c.card_name}{c.is_commander ? ' (Commander)' : ''}
-              </li>
+        <div className="card">
+            <h3>Cards</h3>
+            <div className="grid">
+            {cards.map((c, i) => (
+                <div key={i}>
+                <CardThumb name={c.card_name} />
+                <div style={{marginTop:6, fontSize:12}}>
+                    {c.count} × {c.card_name}{c.is_commander ? ' (Commander)' : ''}
+                </div>
+                </div>
             ))}
-          </ul>
+            </div>
         </div>
-      )}
+        )}
     </div>
   )
 }
