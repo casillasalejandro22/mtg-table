@@ -278,6 +278,15 @@ export default function RoomLobby() {
         <div className="row" style={{ alignItems: 'center' }}>
           <h2 style={{ margin: 0 }}>Room {pin}</h2>
           <div className="spacer" />
+          {room?.status === 'started' && (
+            <button
+              className="btn"
+              onClick={() => nav(`/table/${pin}`)}
+              style={{ marginRight: 8 }}
+            >
+              Return to Table
+            </button>
+          )}
           {isOwner && (
             <button className="btn danger" onClick={closeRoom} style={{ marginRight: 8 }}>
               Close room
