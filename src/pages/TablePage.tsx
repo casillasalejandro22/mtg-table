@@ -138,6 +138,25 @@ export default function TablePage() {
     }
   }
 
+  async function startGame() {
+    if (!matchId) return
+
+    // Optimistic UI: initialize seated players
+    setPlayers(prev =>
+      prev.map(p =>
+        p.seat != null ? { ...p, life: 40, hand_count: 0, library_count: 99 } : p
+      )
+    )
+
+    // Persist
+    const { error } = await supabase
+      .from('match_players')
+      .update({ life: 40, hand_count: 0, library_count: 99 })
+      .eq('match_id', matchId)
+      .not('seat', 'is', null) // only seated players
+    if (error) alert(error.message)
+  }
+
   async function drawOne() {
   if (!myPlayer || !matchId || !me) return
 
@@ -157,6 +176,33 @@ export default function TablePage() {
   const { error } = await supabase
     .from('match_players')
     .update({ library_count: nextLib, hand_count: nextHand })
+    .eq('match_id', matchId)
+    .eq('user_id', me)
+
+  if (error) alert(error.message)
+}
+
+async function mulligan() {
+  if (!myPlayer || !matchId || !me) return
+  const giveBack = myPlayer.hand_count ?? 0
+  if (giveBack === 0) return
+
+  // Optimistic UI
+  setPlayers(prev =>
+    prev.map(p =>
+      p.user_id === me
+        ? { ...p, hand_count: 0, library_count: (p.library_count ?? 0) + giveBack }
+        : p
+    )
+  )
+
+  // Persist
+  const { error } = await supabase
+    .from('match_players')
+    .update({
+      hand_count: 0,
+      library_count: (myPlayer.library_count ?? 0) + giveBack,
+    })
     .eq('match_id', matchId)
     .eq('user_id', me)
 
@@ -213,9 +259,14 @@ export default function TablePage() {
           <h2 style={{margin:0}}>Table — Room {pin}</h2>
           <div className="spacer" />
           {isOwner && (
-            <button className="btn danger" onClick={endMatch} style={{ marginRight: 8 }}>
-              End Match
-            </button>
+            <>
+              <button className="btn" onClick={startGame} style={{ marginRight: 8 }}>
+                Start Game
+              </button>
+              <button className="btn danger" onClick={endMatch} style={{ marginRight: 8 }}>
+                End Match
+              </button>
+            </>
           )}
           <button className="btn ghost" onClick={() => nav(`/room/${pin}`)}>Back to Lobby</button>
         </div>
@@ -236,6 +287,14 @@ export default function TablePage() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
+                  <button
+                    className="btn mini"
+                    onClick={mulligan}
+                    disabled={(myPlayer?.hand_count ?? 0) === 0}
+                    title="Return your hand to library and shuffle (counts-only)"
+                  >
+                    Mulligan
+                  </button>
                 </div>
               )}
             </div>
@@ -253,6 +312,14 @@ export default function TablePage() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
+                  <button
+                    className="btn mini"
+                    onClick={mulligan}
+                    disabled={(myPlayer?.hand_count ?? 0) === 0}
+                    title="Return your hand to library and shuffle (counts-only)"
+                  >
+                    Mulligan
+                  </button>
                 </div>
               )}
 
@@ -271,6 +338,14 @@ export default function TablePage() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
+                  <button
+                    className="btn mini"
+                    onClick={mulligan}
+                    disabled={(myPlayer?.hand_count ?? 0) === 0}
+                    title="Return your hand to library and shuffle (counts-only)"
+                  >
+                    Mulligan
+                  </button>
                 </div>
               )}
             </div>
@@ -288,6 +363,14 @@ export default function TablePage() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
+                  <button
+                    className="btn mini"
+                    onClick={mulligan}
+                    disabled={(myPlayer?.hand_count ?? 0) === 0}
+                    title="Return your hand to library and shuffle (counts-only)"
+                  >
+                    Mulligan
+                  </button>
                 </div>
               )}
             </div>
@@ -296,7 +379,6 @@ export default function TablePage() {
             <div className="table-center">Battlefield (coming soon)</div>
           </div>
         </div>
-
 
         <div className="card" style={{background:'#161616'}}>
           <h3 style={{marginTop:0}}>Players</h3>
@@ -310,10 +392,6 @@ export default function TablePage() {
               </div>
             ))}
           </div>
-        </div>
-
-        <div className="muted">
-          (Next steps: shuffle/deal 7, zones, actions. For now this page is just a snapshot.)
         </div>
       </div>
     </div>
