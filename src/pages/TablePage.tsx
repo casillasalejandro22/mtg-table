@@ -3,7 +3,15 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
 type Room = { id: string; pin: string }
-type MP = { user_id: string; seat: number | null; life: number; deck_id: string | null }
+type MP = {
+  match_id: string
+  user_id: string
+  seat: number | null
+  life: number | null
+  deck_id: string | null
+  hand_count: number | null
+  library_count: number | null
+}
 type RP = { user_id: string; nickname: string | null; seat: number | null }
 
 export default function TablePage() {
@@ -25,9 +33,21 @@ export default function TablePage() {
     }
     const withNames = (s: number) => {
       const p = bySeat[s]
-      if (!p) return { seat: s, name: 'Empty', life: null as number | null, deck: false }
+      if (!p) {
+        return {
+          seat: s, name: 'Empty',
+          life: null as number | null, deck: false,
+          hand: null as number | null, library: null as number | null,
+        }
+      }
       const nick = names[p.user_id]?.nickname ?? p.user_id.slice(0,8)
-      return { seat: s, name: nick, life: p.life, deck: !!p.deck_id }
+      return {
+        seat: s, name: nick,
+        life: p.life,
+        deck: !!p.deck_id,
+        hand: p.hand_count ?? 0,
+        library: p.library_count ?? 0,
+      }
     }
     return [withNames(1), withNames(2), withNames(3), withNames(4)]
   }, [players, names])
@@ -66,10 +86,10 @@ export default function TablePage() {
       if (m.error || !m.data) { alert('No match found'); return }
       setMatchId(m.data.id)
 
-      // match players
+      // match players (include all fields your MP type expects)
       const mp = await supabase
         .from('match_players')
-        .select('user_id,seat,life,deck_id')
+        .select('match_id,user_id,seat,life,deck_id,hand_count,library_count')
         .eq('match_id', m.data.id)
         .order('seat', { ascending: true })
       setPlayers(mp.data ?? [])
@@ -117,6 +137,31 @@ export default function TablePage() {
       // optional: reload from DB on failure
     }
   }
+
+  async function drawOne() {
+  if (!myPlayer || !matchId || !me) return
+
+  const curLib  = myPlayer.library_count ?? 0
+  const curHand = myPlayer.hand_count ?? 0
+  if (curLib <= 0) return
+
+  const nextLib  = curLib - 1
+  const nextHand = curHand + 1
+
+  // optimistic UI
+  setPlayers(prev =>
+    prev.map(p => p.user_id === me ? { ...p, library_count: nextLib, hand_count: nextHand } : p)
+  )
+
+  // persist
+  const { error } = await supabase
+    .from('match_players')
+    .update({ library_count: nextLib, hand_count: nextHand })
+    .eq('match_id', matchId)
+    .eq('user_id', me)
+
+  if (error) alert(error.message)
+}
 
   useEffect(() => {
     if (!matchId) return
@@ -181,13 +226,16 @@ export default function TablePage() {
             {/* Top (Seat 1) */}
             <div className="seat seat-1">
               <div className="seat-name">{seats[0].name}</div>
-              <div className="seat-meta">Life: {seats[0].life ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}</div>
+              <div className="seat-meta">
+                Life: {seats[0].life ?? '—'} • Hand: {seats[0].hand ?? '—'} • Library: {seats[0].library ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}
+              </div>
               {mySeat === 1 && (
                 <div className="life-controls">
                   <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
                   <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
                 </div>
               )}
             </div>
@@ -195,13 +243,16 @@ export default function TablePage() {
             {/* Right (Seat 2) */}
             <div className="seat seat-2">
               <div className="seat-name">{seats[1].name}</div>
-              <div className="seat-meta">Life: {seats[1].life ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}</div>
+              <div className="seat-meta">
+                Life: {seats[1].life ?? '—'} • Hand: {seats[1].hand ?? '—'} • Library: {seats[1].library ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}
+              </div>
               {mySeat === 2 && (
                 <div className="life-controls">
                   <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
                   <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
                 </div>
               )}
 
@@ -210,13 +261,16 @@ export default function TablePage() {
             {/* Bottom (Seat 3) */}
             <div className="seat seat-3">
               <div className="seat-name">{seats[2].name}</div>
-              <div className="seat-meta">Life: {seats[2].life ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}</div>
+              <div className="seat-meta">
+                Life: {seats[2].life ?? '—'} • Hand: {seats[2].hand ?? '—'} • Library: {seats[2].library ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}
+              </div>
               {mySeat === 3 && (
                 <div className="life-controls">
                   <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
                   <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
                 </div>
               )}
             </div>
@@ -224,13 +278,16 @@ export default function TablePage() {
             {/* Left (Seat 4) */}
             <div className="seat seat-4">
               <div className="seat-name">{seats[3].name}</div>
-              <div className="seat-meta">Life: {seats[3].life ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}</div>
+              <div className="seat-meta">
+                Life: {seats[3].life ?? '—'} • Hand: {seats[3].hand ?? '—'} • Library: {seats[3].library ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}
+              </div>
               {mySeat === 4 && (
                 <div className="life-controls">
                   <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
                   <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
                 </div>
               )}
             </div>
