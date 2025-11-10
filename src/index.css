@@ -135,3 +135,6 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
   margin-top: 8px;
   flex-wrap: wrap;
 }
+
+.hand-list { margin-top: 6px; font-size: 12px; opacity: 0.9; }
+
