@@ -21,6 +21,7 @@ export default function Header() {
       <nav className="nav">
         {tab('/', 'Deck Builder')}
         {tab('/decks', 'My Decks')}
+        {tab('/rooms', 'Rooms')}
       </nav>
       <button className="btn" onClick={signOut}>Sign out</button>
     </header>

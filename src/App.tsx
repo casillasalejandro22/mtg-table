@@ -7,6 +7,10 @@ import Header from './components/Header'
 import DeckBuilderPage from './pages/DeckBuilderPage'
 import MyDecksPage from './pages/MyDecksPage'
 import DeckViewPage from './pages/DeckViewPage'
+import RoomsHome from './pages/RoomsHome'
+import RoomLobby from './pages/RoomLobby'
+import TablePage from './pages/TablePage'
+
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
@@ -29,6 +33,9 @@ export default function App() {
         <Route path="/decks" element={<MyDecksPage />} />
         <Route path="/deck/:id" element={<DeckViewPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/rooms" element={<RoomsHome />} />
+        <Route path="/room/:pin" element={<RoomLobby />} />
+        <Route path="/table/:pin" element={<TablePage />} />
       </Routes>
     </>
   )
