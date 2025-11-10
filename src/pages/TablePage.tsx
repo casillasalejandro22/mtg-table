@@ -331,12 +331,12 @@ export default function TablePage() {
     if (!u1.error && !u2.error) {
       // Immediate local feedback (realtime may lag)
       // We've already returned if !top.data above, so assert non-null here.
-      const t = top.data! as {
-        id: string
-        card_name: string
-        set_code: string | null
-        collector_number: string | null
-      }
+      // const t = top.data! as {
+      //   id: string
+      //   card_name: string
+      //   set_code: string | null
+      //   collector_number: string | null
+      // }
     }
   }
 
