@@ -36,9 +36,7 @@ export default function TablePage() {
 
   const [myHand, setMyHand] = useState<{id:string; card_name:string; set_code:string|null; collector_number:string|null}[]>([])
 
-
   const seats = useMemo(() => {
-    // seat numbers 1..4 (clockwise)
     const bySeat: Record<number, MP | null> = { 1:null, 2:null, 3:null, 4:null }
     for (const p of players) {
       if (p.seat && bySeat[p.seat] == null) bySeat[p.seat] = p
@@ -68,10 +66,8 @@ export default function TablePage() {
   }, [players, names])
 
   const isOwner = !!me && !!ownerId && me === ownerId
-
   const myPlayer = useMemo(() => players.find(p => p.user_id === me) ?? null, [players, me])
   const mySeat   = myPlayer?.seat ?? null
-
 
   useEffect(() => {
     (async () => {
@@ -80,17 +76,12 @@ export default function TablePage() {
       const u = await supabase.auth.getUser()
       if (!u.error && u.data.user) setMe(u.data.user.id)
 
-      // find room by pin
       const r = await supabase.from('rooms').select('id,pin,status,owner_id').eq('pin', pin).single()
       if (r.error || !r.data) { alert('Room not found'); nav('/rooms'); return }
-      if (r.data.status !== 'started') {
-        // if not started, bounce back to lobby
-        return nav(`/room/${pin}`)
-      }
+      if (r.data.status !== 'started') return nav(`/room/${pin}`)
       setRoom({ id: r.data.id, pin: r.data.pin })
       setOwnerId(r.data.owner_id)
 
-      // latest match for this room
       const m = await supabase
         .from('matches')
         .select('id')
@@ -101,7 +92,6 @@ export default function TablePage() {
       if (m.error || !m.data) { alert('No match found'); return }
       setMatchId(m.data.id)
 
-      // match players (include all fields your MP type expects)
       const mp = await supabase
         .from('match_players')
         .select('match_id,user_id,seat,life,deck_id,hand_count,library_count,graveyard_count,exile_count')
@@ -109,7 +99,6 @@ export default function TablePage() {
         .order('seat', { ascending: true })
       setPlayers(mp.data ?? [])
 
-      // grab nicknames from room_players to display names
       const rp = await supabase
         .from('room_players')
         .select('user_id,nickname,seat')
@@ -135,102 +124,146 @@ export default function TablePage() {
     if (!myPlayer || !matchId || !me) return
     const newLife = (myPlayer.life ?? 40) + delta
 
-    // optimistic UI
     setPlayers(prev =>
       prev.map(p => p.user_id === me ? { ...p, life: newLife } : p)
     )
 
-    // persist
     const { error } = await supabase
       .from('match_players')
       .update({ life: newLife })
       .eq('match_id', matchId)
       .eq('user_id', me)
 
-    if (error) {
-      alert(error.message)
-      // optional: reload from DB on failure
-    }
+    if (error) alert(error.message)
   }
 
   async function startGame() {
     if (!matchId) return
 
-    // Optimistic UI: initialize seated players
     setPlayers(prev =>
       prev.map(p =>
         p.seat != null ? { ...p, life: 40, hand_count: 0, library_count: 99, graveyard_count: 0, exile_count: 0 } : p
       )
     )
 
-    // Persist
     const { error } = await supabase
       .from('match_players')
       .update({ life: 40, hand_count: 0, library_count: 99, graveyard_count: 0, exile_count: 0 })
-    
       .eq('match_id', matchId)
-      .not('seat', 'is', null) // only seated players
-    if (error) alert(error.message)
+      .not('seat', 'is', null)
 
-    // materialize per-card libraries based on deck lists
-    await materializeLibraries(matchId, players.filter(p => p.seat != null))
+    if (error) { alert(error.message); return }
+
+    try {
+      await materializeLibraries(matchId)
+    } catch (e: any) {
+      alert(`Materialize failed: ${e?.message ?? e}`)
+      return
+    }
+    setMyHand([])
   }
 
 
-  async function materializeLibraries(matchId: string, seated: MP[]) {
-    // clear any previous cards (safe if restarting)
-    await supabase.from('match_cards').delete().eq('match_id', matchId)
+  async function materializeLibraries(matchId: string) {
+    // 0) Clear old cards for this match
+    const del = await supabase.from('match_cards').delete().eq('match_id', matchId)
+    if (del.error) throw del.error
 
+    // 1) Fetch seated players (fresh), only those with a deck
+    const mp = await supabase
+      .from('match_players')
+      .select('user_id, seat, deck_id')
+      .eq('match_id', matchId)
+      .not('seat', 'is', null)
+
+    if (mp.error) throw mp.error
+
+    const seated = (mp.data ?? []).filter(p => !!p.user_id && !!p.deck_id)
+    if (!seated.length) return
+
+    // 2) Build inserts per player
     for (const p of seated) {
-      if (!p.deck_id || !p.user_id || p.seat == null) continue
+      const owner = (p.user_id ?? '').toString().trim()
+      const deckId = (p.deck_id ?? '').toString().trim()
+      if (!owner || !deckId) {
+        // defensive guard — skip anything malformed
+        console.warn('Skip materialize: missing owner/deck', p)
+        continue
+      }
 
       const dc = await supabase
         .from('deck_cards')
         .select('card_name,count,is_commander,set_code,collector_number')
-        .eq('deck_id', p.deck_id)
+        .eq('deck_id', deckId)
+
+      if (dc.error) throw dc.error
 
       const rows = dc.data ?? []
-      const library: any[] = []
-      let commander: any | null = null
+      const library: Array<{
+        match_id: string
+        owner_user_id: string
+        user_id: string
+        deck_id: string
+        card_name: string
+        set_code: string | null
+        collector_number: string | null
+        zone: 'library' | 'command'
+        library_index: number | null
+      }> = []
+
+      let commander: typeof library[number] | null = null
 
       for (const r of rows) {
+        const n = Number(r.count || 0)
+
         if (r.is_commander) {
-          // commander: one instance in 'command' zone
           commander = {
             match_id: matchId,
-            owner_user_id: p.user_id,
-            deck_id: p.deck_id,
+            owner_user_id: owner,
+            user_id: owner,
+            deck_id: deckId,
             card_name: r.card_name,
             set_code: r.set_code ?? null,
             collector_number: r.collector_number ?? null,
             zone: 'command',
-            library_index: null
+            library_index: null,
           }
         } else {
-          const n = Number(r.count || 0)
           for (let i = 0; i < n; i++) {
             library.push({
               match_id: matchId,
-              owner_user_id: p.user_id,
-              deck_id: p.deck_id,
+              owner_user_id: owner,
+              user_id: owner,
+              deck_id: deckId,
               card_name: r.card_name,
               set_code: r.set_code ?? null,
               collector_number: r.collector_number ?? null,
               zone: 'library',
-              library_index: null
+              library_index: null,
             })
           }
         }
       }
 
+      // shuffle + index (top = 1)
       shuffleInPlace(library)
-      // assign indexes (1 = top)
       library.forEach((row, idx) => { row.library_index = idx + 1 })
 
       const batch = commander ? [commander, ...library] : library
-      if (batch.length) {
-        const ins = await supabase.from('match_cards').insert(batch)
-        if (ins.error) throw ins.error
+      if (!batch.length) continue
+
+      // final sanity: no row without owner_user_id
+      for (const b of batch) {
+        if (!b.owner_user_id) {
+          console.error('Found row with missing owner_user_id', b, { player: p })
+          throw new Error('owner_user_id missing on a match_cards row')
+        }
+      }
+
+      const ins = await supabase.from('match_cards').insert(batch)
+      if (ins.error) {
+        console.error('Insert match_cards failed', ins.error, { owner, deckId, preview: batch.slice(0,3) })
+        throw ins.error
       }
     }
   }
@@ -243,12 +276,10 @@ export default function TablePage() {
     const cur = (myPlayer as any)[zone] ?? 0
     const next = Math.max(0, cur + delta)
 
-    // optimistic UI
     setPlayers(prev =>
-      prev.map(p => p.user_id === me ? { ...p, [zone]: next } as MP : p)
+      prev.map(p => p.user_id === me ? ({ ...p, [zone]: next } as MP) : p)
     )
 
-    // persist
     const { error } = await supabase
       .from('match_players')
       .update({ [zone]: next })
@@ -261,30 +292,32 @@ export default function TablePage() {
   async function drawOne() {
     if (!myPlayer || !matchId || !me) return
 
-    // 1) fetch top card
     const top = await supabase
       .from('match_cards')
-      .select('id,card_name,library_index')
+      .select('id,card_name,set_code,collector_number,library_index')
       .eq('match_id', matchId)
-      .eq('owner_user_id', me)
+      .eq('user_id', me)
       .eq('zone', 'library')
       .order('library_index', { ascending: true })
       .limit(1)
       .maybeSingle()
 
     if (top.error) return alert(top.error.message)
-    if (!top.data) return // nothing to draw
+    if (!top.data) {
+      // library_count might say 99, but no rows exist -> materialization didn’t happen
+      alert('No cards in your library. Press “Start Game” again to initialize your deck.')
+      return
+    }
 
-    // 2) optimistic counts
     const curLib  = myPlayer.library_count ?? 0
     const curHand = myPlayer.hand_count ?? 0
     const nextLib  = Math.max(0, curLib - 1)
     const nextHand = curHand + 1
+
     setPlayers(prev => prev.map(p =>
       p.user_id === me ? { ...p, library_count: nextLib, hand_count: nextHand } : p
     ))
 
-    // 3) persist counts + move the card to hand
     const [u1, u2] = await Promise.all([
       supabase.from('match_players')
         .update({ library_count: nextLib, hand_count: nextHand })
@@ -295,18 +328,27 @@ export default function TablePage() {
     ])
     if (u1.error) alert(u1.error.message)
     if (u2.error) alert(u2.error.message)
+    if (!u1.error && !u2.error) {
+      // Immediate local feedback (realtime may lag)
+      // We've already returned if !top.data above, so assert non-null here.
+      const t = top.data! as {
+        id: string
+        card_name: string
+        set_code: string | null
+        collector_number: string | null
+      }
+    }
   }
 
 
   async function discardOne() {
     if (!myPlayer || !matchId || !me) return
 
-    // pick one hand card (first)
     const one = await supabase
       .from('match_cards')
       .select('id')
       .eq('match_id', matchId)
-      .eq('owner_user_id', me)
+      .eq('user_id', me)                 // << changed
       .eq('zone', 'hand')
       .order('created_at', { ascending: true })
       .limit(1)
@@ -319,7 +361,6 @@ export default function TablePage() {
     const nextHand = curHand - 1
     const nextGY   = curGY + 1
 
-    // optimistic counts
     setPlayers(prev =>
       prev.map(p =>
         p.user_id === me ? { ...p, hand_count: nextHand, graveyard_count: nextGY } : p
@@ -338,33 +379,86 @@ export default function TablePage() {
     if (u2.error) alert(u2.error.message)
   }
 
+  async function mulligan() {
+    if (!myPlayer || !matchId || !me) return
 
-async function mulligan() {
-  if (!myPlayer || !matchId || !me) return
-  const giveBack = myPlayer.hand_count ?? 0
-  if (giveBack === 0) return
+    const hand = await supabase
+      .from('match_cards')
+      .select('id')
+      .eq('match_id', matchId)
+      .eq('user_id', me)                 // << changed
+      .eq('zone', 'hand')
 
-  // Optimistic UI
-  setPlayers(prev =>
-    prev.map(p =>
-      p.user_id === me
-        ? { ...p, hand_count: 0, library_count: (p.library_count ?? 0) + giveBack }
-        : p
+    const ids = (hand.data ?? []).map(r => r.id as string)
+    const giveBack = ids.length
+    if (giveBack === 0) return
+
+    setPlayers(prev =>
+      prev.map(p =>
+        p.user_id === me
+          ? { ...p, hand_count: 0, library_count: (p.library_count ?? 0) + giveBack }
+          : p
+      )
     )
-  )
+    setMyHand([])
 
-  // Persist
-  const { error } = await supabase
-    .from('match_players')
-    .update({
-      hand_count: 0,
-      library_count: (myPlayer.library_count ?? 0) + giveBack,
-    })
-    .eq('match_id', matchId)
-    .eq('user_id', me)
+    const u1 = await supabase
+      .from('match_cards')
+      .update({ zone: 'library', library_index: null })
+      .in('id', ids)
+    if (u1.error) { alert(u1.error.message); return }
 
-  if (error) alert(error.message)
-}
+    // 4) reindex library safely: clear old indexes, then assign 1..N
+
+    // 4a) BREAK UNIQUENESS FIRST — set all current library_index to NULL
+    await supabase
+      .from('match_cards')
+      .update({ library_index: null })
+      .eq('match_id', matchId)
+      .eq('owner_user_id', me)
+      .eq('zone', 'library');
+
+    // 4b) fetch ALL my library rows, shuffle, then upsert with full rows (so NOT NULLs are satisfied)
+    const libRows = await supabase
+      .from('match_cards')
+      .select('id, card_name, set_code, collector_number, deck_id, owner_user_id, user_id')
+      .eq('match_id', matchId)
+      .eq('owner_user_id', me)
+      .eq('zone', 'library');
+
+    const rows = libRows.data ?? [];
+    shuffleInPlace(rows);
+
+    const updates = rows.map((row, idx) => ({
+      id: row.id,
+      // include NOT-NULL / policy columns so INSERT path (if taken) is valid
+      match_id: matchId,
+      deck_id: row.deck_id ?? null,
+      owner_user_id: row.owner_user_id ?? me,
+      user_id: row.user_id ?? me,
+      card_name: row.card_name,          // NOT NULL
+      zone: 'library',                   // NOT NULL
+      set_code: row.set_code ?? null,
+      collector_number: row.collector_number ?? null,
+      // new order
+      library_index: idx + 1,
+    }));
+
+    const u2 = await supabase.from('match_cards').upsert(updates, { onConflict: 'id' });
+    if (u2.error) alert(u2.error.message);
+
+
+    const { error: e3 } = await supabase
+      .from('match_players')
+      .update({
+        hand_count: 0,
+        library_count: (myPlayer.library_count ?? 0) + giveBack
+      })
+      .eq('match_id', matchId)
+      .eq('user_id', me)
+
+    if (e3) alert(e3.message)
+  }
 
   useEffect(() => {
     if (!matchId) return
@@ -385,9 +479,7 @@ async function mulligan() {
           const rowOld = payload.old as MP | undefined
 
           setPlayers((prev) => {
-            // work on a copy
             let next = [...prev]
-
             if (type === 'INSERT' || type === 'UPDATE') {
               if (!rowNew) return prev
               const i = next.findIndex(p => p.user_id === rowNew.user_id)
@@ -397,16 +489,13 @@ async function mulligan() {
               if (!rowOld) return prev
               next = next.filter(p => p.user_id !== rowOld.user_id)
             }
-
             return next
           })
         }
       )
       .subscribe()
 
-    return () => {
-      supabase.removeChannel(channel)
-    }
+    return () => { supabase.removeChannel(channel) }
   }, [matchId])
 
   useEffect(() => {
@@ -414,45 +503,49 @@ async function mulligan() {
     let ch: ReturnType<typeof supabase.channel> | null = null
 
     ;(async () => {
-      // initial load
       const h = await supabase
         .from('match_cards')
         .select('id,card_name,set_code,collector_number')
         .eq('match_id', matchId)
-        .eq('owner_user_id', me)
+        .eq('user_id', me)               // << changed
         .eq('zone', 'hand')
         .order('created_at', { ascending: true })
       setMyHand(h.data ?? [])
 
-      // realtime (optional but nice)
       ch = supabase
         .channel(`hand-${matchId}-${me}`)
         .on('postgres_changes',
           { event: '*', schema: 'public', table: 'match_cards', filter: `match_id=eq.${matchId}` },
           (payload: any) => {
-            const rowNew = payload.new as any
-            const rowOld = payload.old as any
+            const rowNew = payload.new as any | null;
+            const rowOld = payload.old as any | null;
+
             // only care about my cards
-            const isMine = (rowNew?.owner_user_id ?? rowOld?.owner_user_id) === me
-            if (!isMine) return
+            const owner = (rowNew?.owner_user_id ?? rowOld?.owner_user_id) as string | undefined;
+            if (owner !== me) return;
+
+            const id = (rowNew?.id ?? rowOld?.id) as string | undefined;
 
             setMyHand(prev => {
-              let next = prev.slice()
-              if (payload.eventType === 'INSERT') {
-                if (rowNew.zone === 'hand') next.push({ id: rowNew.id, card_name: rowNew.card_name, set_code: rowNew.set_code, collector_number: rowNew.collector_number })
-              } else if (payload.eventType === 'UPDATE') {
-                const wasInHand = prev.findIndex(c => c.id === rowOld.id) >= 0
-                const isInHand  = rowNew.zone === 'hand'
-                // remove old
-                if (wasInHand) next = next.filter(c => c.id !== rowOld.id)
-                // add new
-                if (isInHand) next.push({ id: rowNew.id, card_name: rowNew.card_name, set_code: rowNew.set_code, collector_number: rowNew.collector_number })
-              } else if (payload.eventType === 'DELETE') {
-                next = next.filter(c => c.id !== rowOld.id)
+              // start from prev without this id (prevents duplicates across INSERT/UPDATE)
+              let next = id ? prev.filter(c => c.id !== id) : prev.slice();
+
+              // If the new row exists and is in hand, (re)insert it
+              if (rowNew && rowNew.zone === 'hand') {
+                if (!next.some(c => c.id === rowNew.id)) {
+                  next.push({
+                    id: rowNew.id,
+                    card_name: rowNew.card_name,
+                    set_code: rowNew.set_code ?? null,
+                    collector_number: rowNew.collector_number ?? null,
+                  });
+                }
               }
-              return next
-            })
+              // If it's UPDATE to leave hand or DELETE, we already removed it above.
+              return next;
+            });
           }
+
         )
         .subscribe()
     })()
@@ -495,28 +588,13 @@ async function mulligan() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button
-                    className="btn mini"
-                    onClick={discardOne}
-                    disabled={(myPlayer?.hand_count ?? 0) <= 0}
-                  >
-                    Discard 1
-                  </button>
+                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button
-                    className="btn mini"
-                    onClick={mulligan}
-                    disabled={(myPlayer?.hand_count ?? 0) === 0}
-                    title="Return your hand to library and shuffle (counts-only)"
-                  >
-                    Mulligan
-                  </button>
-                  <div className="hand-list">
-                    <b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}
-                  </div>
+                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
+                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
                 </div>
               )}
             </div>
@@ -534,31 +612,15 @@ async function mulligan() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button
-                    className="btn mini"
-                    onClick={discardOne}
-                    disabled={(myPlayer?.hand_count ?? 0) <= 0}
-                  >
-                    Discard 1
-                  </button>
+                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button
-                    className="btn mini"
-                    onClick={mulligan}
-                    disabled={(myPlayer?.hand_count ?? 0) === 0}
-                    title="Return your hand to library and shuffle (counts-only)"
-                  >
-                    Mulligan
-                  </button>
-                  <div className="hand-list">
-                    <b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}
-                  </div>
+                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
+                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
                 </div>
               )}
-
             </div>
 
             {/* Bottom (Seat 3) */}
@@ -574,28 +636,13 @@ async function mulligan() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button
-                    className="btn mini"
-                    onClick={discardOne}
-                    disabled={(myPlayer?.hand_count ?? 0) <= 0}
-                  >
-                    Discard 1
-                  </button>
+                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button
-                    className="btn mini"
-                    onClick={mulligan}
-                    disabled={(myPlayer?.hand_count ?? 0) === 0}
-                    title="Return your hand to library and shuffle (counts-only)"
-                  >
-                    Mulligan
-                  </button>
-                  <div className="hand-list">
-                    <b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}
-                  </div>
+                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
+                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
                 </div>
               )}
             </div>
@@ -613,33 +660,17 @@ async function mulligan() {
                   <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
                   <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
                   <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button
-                    className="btn mini"
-                    onClick={discardOne}
-                    disabled={(myPlayer?.hand_count ?? 0) <= 0}
-                  >
-                    Discard 1
-                  </button>
+                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
                   <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button
-                    className="btn mini"
-                    onClick={mulligan}
-                    disabled={(myPlayer?.hand_count ?? 0) === 0}
-                    title="Return your hand to library and shuffle (counts-only)"
-                  >
-                    Mulligan
-                  </button>
-                  <div className="hand-list">
-                    <b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}
-                  </div>
+                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
+                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
                 </div>
               )}
             </div>
 
-            {/* Center placeholder */}
             <div className="table-center">Battlefield (coming soon)</div>
           </div>
         </div>
