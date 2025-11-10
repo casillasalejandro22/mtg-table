@@ -128,3 +128,10 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
 /* Wider layout only on TablePage */
 .container.wide { max-width: 1400px; }        /* bump to taste */
 @media (min-width: 1600px) { .container.wide { max-width: 1600px; } }
+
+.life-controls {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}

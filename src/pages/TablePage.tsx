@@ -34,6 +34,9 @@ export default function TablePage() {
 
   const isOwner = !!me && !!ownerId && me === ownerId
 
+  const myPlayer = useMemo(() => players.find(p => p.user_id === me) ?? null, [players, me])
+  const mySeat   = myPlayer?.seat ?? null
+
 
   useEffect(() => {
     (async () => {
@@ -93,6 +96,70 @@ export default function TablePage() {
     nav(`/room/${pin}`)
   }
 
+  async function adjustMyLife(delta: number) {
+    if (!myPlayer || !matchId || !me) return
+    const newLife = (myPlayer.life ?? 40) + delta
+
+    // optimistic UI
+    setPlayers(prev =>
+      prev.map(p => p.user_id === me ? { ...p, life: newLife } : p)
+    )
+
+    // persist
+    const { error } = await supabase
+      .from('match_players')
+      .update({ life: newLife })
+      .eq('match_id', matchId)
+      .eq('user_id', me)
+
+    if (error) {
+      alert(error.message)
+      // optional: reload from DB on failure
+    }
+  }
+
+  useEffect(() => {
+    if (!matchId) return
+
+    const channel = supabase
+      .channel(`mp-${matchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'match_players',
+          filter: `match_id=eq.${matchId}`,
+        },
+        (payload: any) => {
+          const type = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE'
+          const rowNew = payload.new as MP | undefined
+          const rowOld = payload.old as MP | undefined
+
+          setPlayers((prev) => {
+            // work on a copy
+            let next = [...prev]
+
+            if (type === 'INSERT' || type === 'UPDATE') {
+              if (!rowNew) return prev
+              const i = next.findIndex(p => p.user_id === rowNew.user_id)
+              if (i >= 0) next[i] = { ...next[i], ...rowNew }
+              else next.push(rowNew)
+            } else if (type === 'DELETE') {
+              if (!rowOld) return prev
+              next = next.filter(p => p.user_id !== rowOld.user_id)
+            }
+
+            return next
+          })
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [matchId])
 
   return (
     <div className="container wide">
@@ -115,24 +182,57 @@ export default function TablePage() {
             <div className="seat seat-1">
               <div className="seat-name">{seats[0].name}</div>
               <div className="seat-meta">Life: {seats[0].life ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}</div>
+              {mySeat === 1 && (
+                <div className="life-controls">
+                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                </div>
+              )}
             </div>
 
             {/* Right (Seat 2) */}
             <div className="seat seat-2">
               <div className="seat-name">{seats[1].name}</div>
               <div className="seat-meta">Life: {seats[1].life ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}</div>
+              {mySeat === 2 && (
+                <div className="life-controls">
+                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                </div>
+              )}
+
             </div>
 
             {/* Bottom (Seat 3) */}
             <div className="seat seat-3">
               <div className="seat-name">{seats[2].name}</div>
               <div className="seat-meta">Life: {seats[2].life ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}</div>
+              {mySeat === 3 && (
+                <div className="life-controls">
+                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                </div>
+              )}
             </div>
 
             {/* Left (Seat 4) */}
             <div className="seat seat-4">
               <div className="seat-name">{seats[3].name}</div>
               <div className="seat-meta">Life: {seats[3].life ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}</div>
+              {mySeat === 4 && (
+                <div className="life-controls">
+                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
+                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
+                </div>
+              )}
             </div>
 
             {/* Center placeholder */}
