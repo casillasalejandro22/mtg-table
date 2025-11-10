@@ -72,3 +72,59 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
 .lightbox-inner img { max-width: 92vw; max-height: 92vh; display:block; border-radius: 12px }
 .lightbox-close { position:absolute; top:-10px; right:-10px }
 
+.table-root {
+  position: relative;
+  min-height: 520px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background:
+    radial-gradient(1200px 600px at 50% 50%, rgba(255,255,255,0.04), transparent 60%) ,
+    linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0));
+}
+
+.table-center {
+  position: absolute;
+  inset: 20% 12%;                /* more room for top/bottom seats */
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+
+/* seat boxes */
+.seat {
+  position: absolute;
+  width: 260px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 12px;
+  backdrop-filter: blur(2px);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.25);
+}
+.seat-name { font-weight: 700; font-size: 16px }
+.seat-meta { font-size: 12px; opacity: 0.85; margin-top: 2px }
+
+/* positions (desktop): two on top, two on bottom */
+.seat-1 { top: 12px; left: 12px;  transform: none; }
+.seat-2 { top: 12px; right: 12px; transform: none; }
+.seat-3 { bottom: 12px; left: 12px;  transform: none; }
+.seat-4 { bottom: 12px; right: 12px; transform: none; }
+
+@media (max-width: 800px) {
+  .table-root { min-height: 700px; }
+  .table-center { inset: 46% 6%; }
+  .seat { width: calc(100% - 24px); left: 12px !important; right: 12px !important; transform: none !important; }
+  .seat-1 { top: 12px; }
+  .seat-2 { top: 146px; }
+  .seat-3 { top: 280px; }
+  .seat-4 { top: 414px; }
+}
+
+
+/* Wider layout only on TablePage */
+.container.wide { max-width: 1400px; }        /* bump to taste */
+@media (min-width: 1600px) { .container.wide { max-width: 1600px; } }

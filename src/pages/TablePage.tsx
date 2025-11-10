@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 
@@ -16,6 +16,22 @@ export default function TablePage() {
 
   const [players, setPlayers] = useState<MP[]>([])
   const [names, setNames] = useState<Record<string, RP>>({})
+
+  const seats = useMemo(() => {
+    // seat numbers 1..4 (clockwise)
+    const bySeat: Record<number, MP | null> = { 1:null, 2:null, 3:null, 4:null }
+    for (const p of players) {
+      if (p.seat && bySeat[p.seat] == null) bySeat[p.seat] = p
+    }
+    const withNames = (s: number) => {
+      const p = bySeat[s]
+      if (!p) return { seat: s, name: 'Empty', life: null as number | null, deck: false }
+      const nick = names[p.user_id]?.nickname ?? p.user_id.slice(0,8)
+      return { seat: s, name: nick, life: p.life, deck: !!p.deck_id }
+    }
+    return [withNames(1), withNames(2), withNames(3), withNames(4)]
+  }, [players, names])
+
   const isOwner = !!me && !!ownerId && me === ownerId
 
 
@@ -79,7 +95,7 @@ export default function TablePage() {
 
 
   return (
-    <div className="container">
+    <div className="container wide">
       <div className="card" style={{display:'grid', gap:12}}>
         <div className="row" style={{alignItems:'center'}}>
           <h2 style={{margin:0}}>Table — Room {pin}</h2>
@@ -90,6 +106,38 @@ export default function TablePage() {
             </button>
           )}
           <button className="btn ghost" onClick={() => nav(`/room/${pin}`)}>Back to Lobby</button>
+        </div>
+
+        <div className="card" style={{ background: '#0f0f0f' }}>
+          <h3 style={{ marginTop: 0 }}>Table</h3>
+          <div className="table-root">
+            {/* Top (Seat 1) */}
+            <div className="seat seat-1">
+              <div className="seat-name">{seats[0].name}</div>
+              <div className="seat-meta">Life: {seats[0].life ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}</div>
+            </div>
+
+            {/* Right (Seat 2) */}
+            <div className="seat seat-2">
+              <div className="seat-name">{seats[1].name}</div>
+              <div className="seat-meta">Life: {seats[1].life ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}</div>
+            </div>
+
+            {/* Bottom (Seat 3) */}
+            <div className="seat seat-3">
+              <div className="seat-name">{seats[2].name}</div>
+              <div className="seat-meta">Life: {seats[2].life ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}</div>
+            </div>
+
+            {/* Left (Seat 4) */}
+            <div className="seat seat-4">
+              <div className="seat-name">{seats[3].name}</div>
+              <div className="seat-meta">Life: {seats[3].life ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}</div>
+            </div>
+
+            {/* Center placeholder */}
+            <div className="table-center">Battlefield (coming soon)</div>
+          </div>
         </div>
 
 
