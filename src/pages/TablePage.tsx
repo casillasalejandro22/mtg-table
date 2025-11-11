@@ -1,6 +1,7 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import CardThumb from '../components/CardThumb'
 
 function shuffleInPlace<T>(a: T[]) {
   for (let i = a.length - 1; i > 0; i--) {
@@ -34,10 +35,12 @@ export default function TablePage() {
   const [players, setPlayers] = useState<MP[]>([])
   const [names, setNames] = useState<Record<string, RP>>({})
 
-  const [myHand, setMyHand] = useState<{id:string; card_name:string; set_code:string|null; collector_number:string|null}[]>([])
+  const [myHand, setMyHand] = useState<
+    { id: string; card_name: string; set_code: string | null; collector_number: string | null }[]
+  >([])
 
   const seats = useMemo(() => {
-    const bySeat: Record<number, MP | null> = { 1:null, 2:null, 3:null, 4:null }
+    const bySeat: Record<number, MP | null> = { 1: null, 2: null, 3: null, 4: null }
     for (const p of players) {
       if (p.seat && bySeat[p.seat] == null) bySeat[p.seat] = p
     }
@@ -45,21 +48,26 @@ export default function TablePage() {
       const p = bySeat[s]
       if (!p) {
         return {
-          seat: s, name: 'Empty',
-          life: null as number | null, deck: false,
-          hand: null as number | null, library: null as number | null,
-          graveyard: null as number | null, exile: null as number | null,
+          seat: s,
+          name: 'Empty',
+          life: null as number | null,
+          deck: false,
+          hand: null as number | null,
+          library: null as number | null,
+          graveyard: null as number | null,
+          exile: null as number | null,
         }
       }
-      const nick = names[p.user_id]?.nickname ?? p.user_id.slice(0,8)
+      const nick = names[p.user_id]?.nickname ?? p.user_id.slice(0, 8)
       return {
-        seat: s, name: nick,
+        seat: s,
+        name: nick,
         life: p.life,
         deck: !!p.deck_id,
         hand: p.hand_count ?? 0,
         library: p.library_count ?? 0,
         graveyard: p.graveyard_count ?? 0,
-        exile:     p.exile_count     ?? 0,
+        exile: p.exile_count ?? 0,
       }
     }
     return [withNames(1), withNames(2), withNames(3), withNames(4)]
@@ -67,17 +75,40 @@ export default function TablePage() {
 
   const isOwner = !!me && !!ownerId && me === ownerId
   const myPlayer = useMemo(() => players.find(p => p.user_id === me) ?? null, [players, me])
-  const mySeat   = myPlayer?.seat ?? null
+  const mySeat = myPlayer?.seat ?? null
 
+  // Fullscreen only for the table card
+  const tableFSRef = useRef<HTMLDivElement>(null)
+  const [isFS, setIsFS] = useState(false)
+  const toggleFullscreen = async () => {
+    const el = tableFSRef.current
+    if (!el) return
+    if (!document.fullscreenElement) {
+      await el.requestFullscreen().catch(() => {})
+    } else {
+      await document.exitFullscreen().catch(() => {})
+    }
+  }
   useEffect(() => {
-    (async () => {
+    const onChange = () => setIsFS(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  // Initial data load
+  useEffect(() => {
+    ;(async () => {
       if (!pin) return
 
       const u = await supabase.auth.getUser()
       if (!u.error && u.data.user) setMe(u.data.user.id)
 
       const r = await supabase.from('rooms').select('id,pin,status,owner_id').eq('pin', pin).single()
-      if (r.error || !r.data) { alert('Room not found'); nav('/rooms'); return }
+      if (r.error || !r.data) {
+        alert('Room not found')
+        nav('/rooms')
+        return
+      }
       if (r.data.status !== 'started') return nav(`/room/${pin}`)
       setRoom({ id: r.data.id, pin: r.data.pin })
       setOwnerId(r.data.owner_id)
@@ -89,12 +120,17 @@ export default function TablePage() {
         .order('created_at', { ascending: false })
         .limit(1)
         .single()
-      if (m.error || !m.data) { alert('No match found'); return }
+      if (m.error || !m.data) {
+        alert('No match found')
+        return
+      }
       setMatchId(m.data.id)
 
       const mp = await supabase
         .from('match_players')
-        .select('match_id,user_id,seat,life,deck_id,hand_count,library_count,graveyard_count,exile_count')
+        .select(
+          'match_id,user_id,seat,life,deck_id,hand_count,library_count,graveyard_count,exile_count'
+        )
         .eq('match_id', m.data.id)
         .order('seat', { ascending: true })
       setPlayers(mp.data ?? [])
@@ -124,9 +160,7 @@ export default function TablePage() {
     if (!myPlayer || !matchId || !me) return
     const newLife = (myPlayer.life ?? 40) + delta
 
-    setPlayers(prev =>
-      prev.map(p => p.user_id === me ? { ...p, life: newLife } : p)
-    )
+    setPlayers(prev => prev.map(p => (p.user_id === me ? { ...p, life: newLife } : p)))
 
     const { error } = await supabase
       .from('match_players')
@@ -142,7 +176,9 @@ export default function TablePage() {
 
     setPlayers(prev =>
       prev.map(p =>
-        p.seat != null ? { ...p, life: 40, hand_count: 0, library_count: 99, graveyard_count: 0, exile_count: 0 } : p
+        p.seat != null
+          ? { ...p, life: 40, hand_count: 0, library_count: 99, graveyard_count: 0, exile_count: 0 }
+          : p
       )
     )
 
@@ -152,7 +188,10 @@ export default function TablePage() {
       .eq('match_id', matchId)
       .not('seat', 'is', null)
 
-    if (error) { alert(error.message); return }
+    if (error) {
+      alert(error.message)
+      return
+    }
 
     try {
       await materializeLibraries(matchId)
@@ -163,39 +202,29 @@ export default function TablePage() {
     setMyHand([])
   }
 
-
   async function materializeLibraries(matchId: string) {
-    // 0) Clear old cards for this match
     const del = await supabase.from('match_cards').delete().eq('match_id', matchId)
     if (del.error) throw del.error
 
-    // 1) Fetch seated players (fresh), only those with a deck
     const mp = await supabase
       .from('match_players')
       .select('user_id, seat, deck_id')
       .eq('match_id', matchId)
       .not('seat', 'is', null)
-
     if (mp.error) throw mp.error
 
     const seated = (mp.data ?? []).filter(p => !!p.user_id && !!p.deck_id)
     if (!seated.length) return
 
-    // 2) Build inserts per player
     for (const p of seated) {
       const owner = (p.user_id ?? '').toString().trim()
       const deckId = (p.deck_id ?? '').toString().trim()
-      if (!owner || !deckId) {
-        // defensive guard — skip anything malformed
-        console.warn('Skip materialize: missing owner/deck', p)
-        continue
-      }
+      if (!owner || !deckId) continue
 
       const dc = await supabase
         .from('deck_cards')
         .select('card_name,count,is_commander,set_code,collector_number')
         .eq('deck_id', deckId)
-
       if (dc.error) throw dc.error
 
       const rows = dc.data ?? []
@@ -215,7 +244,6 @@ export default function TablePage() {
 
       for (const r of rows) {
         const n = Number(r.count || 0)
-
         if (r.is_commander) {
           commander = {
             match_id: matchId,
@@ -245,40 +273,25 @@ export default function TablePage() {
         }
       }
 
-      // shuffle + index (top = 1)
       shuffleInPlace(library)
-      library.forEach((row, idx) => { row.library_index = idx + 1 })
+      library.forEach((row, idx) => {
+        row.library_index = idx + 1
+      })
 
       const batch = commander ? [commander, ...library] : library
       if (!batch.length) continue
 
-      // final sanity: no row without owner_user_id
-      for (const b of batch) {
-        if (!b.owner_user_id) {
-          console.error('Found row with missing owner_user_id', b, { player: p })
-          throw new Error('owner_user_id missing on a match_cards row')
-        }
-      }
-
       const ins = await supabase.from('match_cards').insert(batch)
-      if (ins.error) {
-        console.error('Insert match_cards failed', ins.error, { owner, deckId, preview: batch.slice(0,3) })
-        throw ins.error
-      }
+      if (ins.error) throw ins.error
     }
   }
 
-  async function adjustMyZone(
-    zone: 'graveyard_count' | 'exile_count',
-    delta: number
-  ) {
+  async function adjustMyZone(zone: 'graveyard_count' | 'exile_count', delta: number) {
     if (!myPlayer || !matchId || !me) return
     const cur = (myPlayer as any)[zone] ?? 0
     const next = Math.max(0, cur + delta)
 
-    setPlayers(prev =>
-      prev.map(p => p.user_id === me ? ({ ...p, [zone]: next } as MP) : p)
-    )
+    setPlayers(prev => prev.map(p => (p.user_id === me ? ({ ...p, [zone]: next } as MP) : p)))
 
     const { error } = await supabase
       .from('match_players')
@@ -304,42 +317,91 @@ export default function TablePage() {
 
     if (top.error) return alert(top.error.message)
     if (!top.data) {
-      // library_count might say 99, but no rows exist -> materialization didn’t happen
       alert('No cards in your library. Press “Start Game” again to initialize your deck.')
       return
     }
 
-    const curLib  = myPlayer.library_count ?? 0
+    const curLib = myPlayer.library_count ?? 0
     const curHand = myPlayer.hand_count ?? 0
-    const nextLib  = Math.max(0, curLib - 1)
+    const nextLib = Math.max(0, curLib - 1)
     const nextHand = curHand + 1
 
-    setPlayers(prev => prev.map(p =>
-      p.user_id === me ? { ...p, library_count: nextLib, hand_count: nextHand } : p
-    ))
+    setPlayers(prev =>
+      prev.map(p => (p.user_id === me ? { ...p, library_count: nextLib, hand_count: nextHand } : p))
+    )
 
     const [u1, u2] = await Promise.all([
-      supabase.from('match_players')
+      supabase
+        .from('match_players')
         .update({ library_count: nextLib, hand_count: nextHand })
-        .eq('match_id', matchId).eq('user_id', me),
-      supabase.from('match_cards')
-        .update({ zone: 'hand', library_index: null })
-        .eq('id', top.data.id)
+        .eq('match_id', matchId)
+        .eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'hand', library_index: null }).eq('id', top.data.id),
     ])
     if (u1.error) alert(u1.error.message)
     if (u2.error) alert(u2.error.message)
-    if (!u1.error && !u2.error) {
-      // Immediate local feedback (realtime may lag)
-      // We've already returned if !top.data above, so assert non-null here.
-      // const t = top.data! as {
-      //   id: string
-      //   card_name: string
-      //   set_code: string | null
-      //   collector_number: string | null
-      // }
-    }
   }
 
+  async function playFromHand(cardId: string) {
+    if (!myPlayer || !matchId || !me) return
+    const nextHand = Math.max(0, (myPlayer.hand_count ?? 0) - 1)
+
+    setPlayers(prev => prev.map(p => (p.user_id === me ? { ...p, hand_count: nextHand } : p)))
+    setMyHand(prev => prev.filter(c => c.id !== cardId))
+
+    const [u1, u2] = await Promise.all([
+      supabase.from('match_players').update({ hand_count: nextHand }).eq('match_id', matchId).eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'battlefield' }).eq('id', cardId),
+    ])
+    if (u1.error) alert(u1.error.message)
+    if (u2.error) alert(u2.error.message)
+  }
+
+  async function discardCard(cardId: string) {
+    if (!myPlayer || !matchId || !me) return
+    const nextHand = Math.max(0, (myPlayer.hand_count ?? 0) - 1)
+    const nextGY = (myPlayer.graveyard_count ?? 0) + 1
+
+    setPlayers(prev =>
+      prev.map(p =>
+        p.user_id === me ? { ...p, hand_count: nextHand, graveyard_count: nextGY } : p
+      )
+    )
+    setMyHand(prev => prev.filter(c => c.id !== cardId))
+
+    const [u1, u2] = await Promise.all([
+      supabase
+        .from('match_players')
+        .update({ hand_count: nextHand, graveyard_count: nextGY })
+        .eq('match_id', matchId)
+        .eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'graveyard' }).eq('id', cardId),
+    ])
+    if (u1.error) alert(u1.error.message)
+    if (u2.error) alert(u2.error.message)
+  }
+
+  async function exileCard(cardId: string) {
+    if (!myPlayer || !matchId || !me) return
+    const nextHand = Math.max(0, (myPlayer.hand_count ?? 0) - 1)
+    const nextExile = (myPlayer.exile_count ?? 0) + 1
+
+    setPlayers(prev =>
+      prev.map(p => (p.user_id === me ? { ...p, hand_count: nextHand, exile_count: nextExile } : p))
+    )
+    setMyHand(prev => prev.filter(c => c.id !== cardId))
+
+    const [u1, u2] = await Promise.all([
+      supabase
+        .from('match_players')
+        .update({ hand_count: nextHand, exile_count: nextExile })
+        .eq('match_id', matchId)
+        .eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'exile' }).eq('id', cardId),
+    ])
+    if (u1.error) alert(u1.error.message)
+    if (u2.error) alert(u2.error.message)
+  }
 
   async function discardOne() {
     if (!myPlayer || !matchId || !me) return
@@ -348,7 +410,7 @@ export default function TablePage() {
       .from('match_cards')
       .select('id')
       .eq('match_id', matchId)
-      .eq('user_id', me)                 // << changed
+      .eq('user_id', me)
       .eq('zone', 'hand')
       .order('created_at', { ascending: true })
       .limit(1)
@@ -357,26 +419,74 @@ export default function TablePage() {
     const curHand = myPlayer.hand_count ?? 0
     if (curHand <= 0) return
 
-    const curGY    = myPlayer.graveyard_count ?? 0
+    const curGY = myPlayer.graveyard_count ?? 0
     const nextHand = curHand - 1
-    const nextGY   = curGY + 1
+    const nextGY = curGY + 1
 
     setPlayers(prev =>
-      prev.map(p =>
-        p.user_id === me ? { ...p, hand_count: nextHand, graveyard_count: nextGY } : p
-      )
+      prev.map(p => (p.user_id === me ? { ...p, hand_count: nextHand, graveyard_count: nextGY } : p))
     )
 
     const [u1, u2] = await Promise.all([
-      supabase.from('match_players')
+      supabase
+        .from('match_players')
         .update({ hand_count: nextHand, graveyard_count: nextGY })
-        .eq('match_id', matchId).eq('user_id', me),
+        .eq('match_id', matchId)
+        .eq('user_id', me),
       one.data
         ? supabase.from('match_cards').update({ zone: 'graveyard' }).eq('id', one.data.id)
-        : Promise.resolve({ error: null } as any)
+        : Promise.resolve({ error: null } as any),
     ])
     if (u1.error) alert(u1.error.message)
     if (u2.error) alert(u2.error.message)
+  }
+
+  async function moveHandToGY(cardId: string) {
+    if (!myPlayer || !matchId || !me) return
+    const curHand = myPlayer.hand_count ?? 0
+    if (curHand <= 0) return
+    const nextHand = curHand - 1
+    const nextGY = (myPlayer.graveyard_count ?? 0) + 1
+
+    setPlayers(prev =>
+      prev.map(p => (p.user_id === me ? { ...p, hand_count: nextHand, graveyard_count: nextGY } : p))
+    )
+    setMyHand(prev => prev.filter(c => c.id !== cardId))
+
+    const [uCounts, uCard] = await Promise.all([
+      supabase
+        .from('match_players')
+        .update({ hand_count: nextHand, graveyard_count: nextGY })
+        .eq('match_id', matchId)
+        .eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'graveyard' }).eq('id', cardId),
+    ])
+    if (uCounts.error) alert(uCounts.error.message)
+    if (uCard.error) alert(uCard.error.message)
+  }
+
+  async function moveHandToExile(cardId: string) {
+    if (!myPlayer || !matchId || !me) return
+    const curHand = myPlayer.hand_count ?? 0
+    if (curHand <= 0) return
+    const nextHand = curHand - 1
+    const nextExile = (myPlayer.exile_count ?? 0) + 1
+
+    setPlayers(prev =>
+      prev.map(p => (p.user_id === me ? { ...p, hand_count: nextHand, exile_count: nextExile } : p))
+    )
+    setMyHand(prev => prev.filter(c => c.id !== cardId))
+
+    const [uCounts, uCard] = await Promise.all([
+      supabase
+        .from('match_players')
+        .update({ hand_count: nextHand, exile_count: nextExile })
+        .eq('match_id', matchId)
+        .eq('user_id', me),
+      supabase.from('match_cards').update({ zone: 'exile' }).eq('id', cardId),
+    ])
+    if (uCounts.error) alert(uCounts.error.message)
+    if (uCard.error) alert(uCard.error.message)
   }
 
   async function mulligan() {
@@ -386,7 +496,7 @@ export default function TablePage() {
       .from('match_cards')
       .select('id')
       .eq('match_id', matchId)
-      .eq('user_id', me)                 // << changed
+      .eq('user_id', me)
       .eq('zone', 'hand')
 
     const ids = (hand.data ?? []).map(r => r.id as string)
@@ -406,53 +516,49 @@ export default function TablePage() {
       .from('match_cards')
       .update({ zone: 'library', library_index: null })
       .in('id', ids)
-    if (u1.error) { alert(u1.error.message); return }
+    if (u1.error) {
+      alert(u1.error.message)
+      return
+    }
 
-    // 4) reindex library safely: clear old indexes, then assign 1..N
-
-    // 4a) BREAK UNIQUENESS FIRST — set all current library_index to NULL
+    // Reindex safely
     await supabase
       .from('match_cards')
       .update({ library_index: null })
       .eq('match_id', matchId)
       .eq('owner_user_id', me)
-      .eq('zone', 'library');
+      .eq('zone', 'library')
 
-    // 4b) fetch ALL my library rows, shuffle, then upsert with full rows (so NOT NULLs are satisfied)
     const libRows = await supabase
       .from('match_cards')
       .select('id, card_name, set_code, collector_number, deck_id, owner_user_id, user_id')
       .eq('match_id', matchId)
       .eq('owner_user_id', me)
-      .eq('zone', 'library');
+      .eq('zone', 'library')
 
-    const rows = libRows.data ?? [];
-    shuffleInPlace(rows);
-
+    const rows = libRows.data ?? []
+    shuffleInPlace(rows)
     const updates = rows.map((row, idx) => ({
       id: row.id,
-      // include NOT-NULL / policy columns so INSERT path (if taken) is valid
       match_id: matchId,
       deck_id: row.deck_id ?? null,
       owner_user_id: row.owner_user_id ?? me,
       user_id: row.user_id ?? me,
-      card_name: row.card_name,          // NOT NULL
-      zone: 'library',                   // NOT NULL
+      card_name: row.card_name,
+      zone: 'library',
       set_code: row.set_code ?? null,
       collector_number: row.collector_number ?? null,
-      // new order
       library_index: idx + 1,
-    }));
+    }))
 
-    const u2 = await supabase.from('match_cards').upsert(updates, { onConflict: 'id' });
-    if (u2.error) alert(u2.error.message);
-
+    const u2 = await supabase.from('match_cards').upsert(updates, { onConflict: 'id' })
+    if (u2.error) alert(u2.error.message)
 
     const { error: e3 } = await supabase
       .from('match_players')
       .update({
         hand_count: 0,
-        library_count: (myPlayer.library_count ?? 0) + giveBack
+        library_count: (myPlayer.library_count ?? 0) + giveBack,
       })
       .eq('match_id', matchId)
       .eq('user_id', me)
@@ -460,25 +566,20 @@ export default function TablePage() {
     if (e3) alert(e3.message)
   }
 
+  // realtime players
   useEffect(() => {
     if (!matchId) return
-
     const channel = supabase
       .channel(`mp-${matchId}`)
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'match_players',
-          filter: `match_id=eq.${matchId}`,
-        },
+        { event: '*', schema: 'public', table: 'match_players', filter: `match_id=eq.${matchId}` },
         (payload: any) => {
           const type = payload.eventType as 'INSERT' | 'UPDATE' | 'DELETE'
           const rowNew = payload.new as MP | undefined
           const rowOld = payload.old as MP | undefined
 
-          setPlayers((prev) => {
+          setPlayers(prev => {
             let next = [...prev]
             if (type === 'INSERT' || type === 'UPDATE') {
               if (!rowNew) return prev
@@ -495,42 +596,39 @@ export default function TablePage() {
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [matchId])
 
+  // my hand (initial + realtime)
   useEffect(() => {
     if (!matchId || !me) return
     let ch: ReturnType<typeof supabase.channel> | null = null
-
     ;(async () => {
       const h = await supabase
         .from('match_cards')
         .select('id,card_name,set_code,collector_number')
         .eq('match_id', matchId)
-        .eq('user_id', me)               // << changed
+        .eq('user_id', me)
         .eq('zone', 'hand')
         .order('created_at', { ascending: true })
       setMyHand(h.data ?? [])
 
       ch = supabase
         .channel(`hand-${matchId}-${me}`)
-        .on('postgres_changes',
+        .on(
+          'postgres_changes',
           { event: '*', schema: 'public', table: 'match_cards', filter: `match_id=eq.${matchId}` },
           (payload: any) => {
-            const rowNew = payload.new as any | null;
-            const rowOld = payload.old as any | null;
-
-            // only care about my cards
-            const owner = (rowNew?.owner_user_id ?? rowOld?.owner_user_id) as string | undefined;
-            if (owner !== me) return;
-
-            const id = (rowNew?.id ?? rowOld?.id) as string | undefined;
+            const rowNew = payload.new as any | null
+            const rowOld = payload.old as any | null
+            const owner = (rowNew?.owner_user_id ?? rowOld?.owner_user_id) as string | undefined
+            if (owner !== me) return
+            const id = (rowNew?.id ?? rowOld?.id) as string | undefined
 
             setMyHand(prev => {
-              // start from prev without this id (prevents duplicates across INSERT/UPDATE)
-              let next = id ? prev.filter(c => c.id !== id) : prev.slice();
-
-              // If the new row exists and is in hand, (re)insert it
+              let next = id ? prev.filter(c => c.id !== id) : prev.slice()
               if (rowNew && rowNew.zone === 'hand') {
                 if (!next.some(c => c.id === rowNew.id)) {
                   next.push({
@@ -538,26 +636,25 @@ export default function TablePage() {
                     card_name: rowNew.card_name,
                     set_code: rowNew.set_code ?? null,
                     collector_number: rowNew.collector_number ?? null,
-                  });
+                  })
                 }
               }
-              // If it's UPDATE to leave hand or DELETE, we already removed it above.
-              return next;
-            });
+              return next
+            })
           }
-
         )
         .subscribe()
     })()
-
-    return () => { if (ch) supabase.removeChannel(ch) }
+    return () => {
+      if (ch) supabase.removeChannel(ch)
+    }
   }, [matchId, me])
 
   return (
-    <div className="container wide">
-      <div className="card" style={{display:'grid', gap:12}}>
-        <div className="row" style={{alignItems:'center'}}>
-          <h2 style={{margin:0}}>Table — Room {pin}</h2>
+    <div className="container table-container">
+      <div className="card" style={{ display: 'grid', gap: 12 }}>
+        <div className="row" style={{ alignItems: 'center' }}>
+          <h2 style={{ margin: 0 }}>Table — Room {pin}</h2>
           <div className="spacer" />
           {isOwner && (
             <>
@@ -567,121 +664,404 @@ export default function TablePage() {
               <button className="btn danger" onClick={endMatch} style={{ marginRight: 8 }}>
                 End Match
               </button>
+              <button className="btn ghost" onClick={toggleFullscreen}>
+                {isFS ? 'Exit Fullscreen' : 'Fullscreen Table'}
+              </button>
             </>
           )}
-          <button className="btn ghost" onClick={() => nav(`/room/${pin}`)}>Back to Lobby</button>
+          <button className="btn ghost" onClick={() => nav(`/room/${pin}`)}>
+            Back to Lobby
+          </button>
         </div>
 
-        <div className="card" style={{ background: '#0f0f0f' }}>
+        {/* --- TABLE: 4 QUADRANTS --- */}
+        <div ref={tableFSRef} className="card table-card" style={{ background: '#0f0f0f' }}>
           <h3 style={{ marginTop: 0 }}>Table</h3>
-          <div className="table-root">
-            {/* Top (Seat 1) */}
-            <div className="seat seat-1">
-              <div className="seat-name">{seats[0].name}</div>
-              <div className="seat-meta">
-                Life: {seats[0].life ?? '—'} • Hand: {seats[0].hand ?? '—'} • Library: {seats[0].library ?? '—'} • GY: {seats[0].graveyard ?? '—'} • Exile: {seats[0].exile ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}
-              </div>
-              {mySeat === 1 && (
-                <div className="life-controls">
-                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
-                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
-                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
+
+          <div className="table-root grid-4">
+            {/* Q1 — Seat 1 */}
+            <div className="quad q1">
+              <div className="seat-panel">
+                <div className="seat-name">{seats[0].name}</div>
+                <div className="seat-meta">
+                  Life: {seats[0].life ?? '—'} • Hand: {seats[0].hand ?? '—'} • Library:{' '}
+                  {seats[0].library ?? '—'} • GY: {seats[0].graveyard ?? '—'} • Exile:{' '}
+                  {seats[0].exile ?? '—'} • Deck: {seats[0].deck ? '✓' : '—'}
                 </div>
-              )}
+
+                {mySeat === 1 && (
+                  <>
+                    <div className="life-controls">
+                      <button className="btn mini" onClick={() => adjustMyLife(-5)}>
+                        -5
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(-1)}>
+                        -1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+1)}>
+                        +1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+5)}>
+                        +5
+                      </button>
+                      <button className="btn mini" onClick={drawOne}>
+                        Draw 1
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={discardOne}
+                        disabled={(myPlayer?.hand_count ?? 0) <= 0}
+                      >
+                        Discard 1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>
+                        +GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>
+                        -GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>
+                        +Exile
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>
+                        -Exile
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={mulligan}
+                        disabled={(myPlayer?.hand_count ?? 0) === 0}
+                        title="Return your hand to library and shuffle"
+                      >
+                        Mulligan
+                      </button>
+                    </div>
+
+                    <div className="hand-rail">
+                      {myHand.length === 0 ? (
+                        <div className="muted" style={{ alignSelf: 'center' }}>
+                          No cards in hand
+                        </div>
+                      ) : (
+                        myHand.map(c => (
+                          <div key={c.id} className="hand-card">
+                            <CardThumb
+                              name={c.card_name}
+                              set={c.set_code ?? undefined}
+                              number={c.collector_number ?? undefined}
+                              size="sm"
+                            />
+                            <div className="hand-actions">
+                              <button className="btn mini" onClick={() => playFromHand(c.id)}>
+                                Play
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToGY(c.id)}>
+                                GY
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToExile(c.id)}>
+                                Exile
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="quad-bf" data-seat="1">Battlefield — Seat 1 (coming soon)</div>
             </div>
 
-            {/* Right (Seat 2) */}
-            <div className="seat seat-2">
-              <div className="seat-name">{seats[1].name}</div>
-              <div className="seat-meta">
-                Life: {seats[1].life ?? '—'} • Hand: {seats[1].hand ?? '—'} • Library: {seats[1].library ?? '—'} • GY: {seats[1].graveyard ?? '—'} • Exile: {seats[1].exile ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}
-              </div>
-              {mySeat === 2 && (
-                <div className="life-controls">
-                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
-                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
-                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
+            {/* Q2 — Seat 2 */}
+            <div className="quad q2">
+              <div className="seat-panel">
+                <div className="seat-name">{seats[1].name}</div>
+                <div className="seat-meta">
+                  Life: {seats[1].life ?? '—'} • Hand: {seats[1].hand ?? '—'} • Library:{' '}
+                  {seats[1].library ?? '—'} • GY: {seats[1].graveyard ?? '—'} • Exile:{' '}
+                  {seats[1].exile ?? '—'} • Deck: {seats[1].deck ? '✓' : '—'}
                 </div>
-              )}
+
+                {mySeat === 2 && (
+                  <>
+                    <div className="life-controls">
+                      <button className="btn mini" onClick={() => adjustMyLife(-5)}>
+                        -5
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(-1)}>
+                        -1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+1)}>
+                        +1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+5)}>
+                        +5
+                      </button>
+                      <button className="btn mini" onClick={drawOne}>
+                        Draw 1
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={discardOne}
+                        disabled={(myPlayer?.hand_count ?? 0) <= 0}
+                      >
+                        Discard 1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>
+                        +GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>
+                        -GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>
+                        +Exile
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>
+                        -Exile
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={mulligan}
+                        disabled={(myPlayer?.hand_count ?? 0) === 0}
+                        title="Return your hand to library and shuffle"
+                      >
+                        Mulligan
+                      </button>
+                    </div>
+
+                    <div className="hand-rail">
+                      {myHand.length === 0 ? (
+                        <div className="muted" style={{ alignSelf: 'center' }}>
+                          No cards in hand
+                        </div>
+                      ) : (
+                        myHand.map(c => (
+                          <div key={c.id} className="hand-card">
+                            <CardThumb
+                              name={c.card_name}
+                              set={c.set_code ?? undefined}
+                              number={c.collector_number ?? undefined}
+                              size="sm"
+                            />
+                            <div className="hand-actions">
+                              <button className="btn mini" onClick={() => playFromHand(c.id)}>
+                                Play
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToGY(c.id)}>
+                                GY
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToExile(c.id)}>
+                                Exile
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="quad-bf" data-seat="2">Battlefield — Seat 2 (coming soon)</div>
             </div>
 
-            {/* Bottom (Seat 3) */}
-            <div className="seat seat-3">
-              <div className="seat-name">{seats[2].name}</div>
-              <div className="seat-meta">
-                Life: {seats[2].life ?? '—'} • Hand: {seats[2].hand ?? '—'} • Library: {seats[2].library ?? '—'} • GY: {seats[2].graveyard ?? '—'} • Exile: {seats[2].exile ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}
-              </div>
-              {mySeat === 3 && (
-                <div className="life-controls">
-                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
-                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
-                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
+            {/* Q3 — Seat 3 */}
+            <div className="quad q3">
+              <div className="seat-panel">
+                <div className="seat-name">{seats[2].name}</div>
+                <div className="seat-meta">
+                  Life: {seats[2].life ?? '—'} • Hand: {seats[2].hand ?? '—'} • Library:{' '}
+                  {seats[2].library ?? '—'} • GY: {seats[2].graveyard ?? '—'} • Exile:{' '}
+                  {seats[2].exile ?? '—'} • Deck: {seats[2].deck ? '✓' : '—'}
                 </div>
-              )}
+
+                {mySeat === 3 && (
+                  <>
+                    <div className="life-controls">
+                      <button className="btn mini" onClick={() => adjustMyLife(-5)}>
+                        -5
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(-1)}>
+                        -1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+1)}>
+                        +1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+5)}>
+                        +5
+                      </button>
+                      <button className="btn mini" onClick={drawOne}>
+                        Draw 1
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={discardOne}
+                        disabled={(myPlayer?.hand_count ?? 0) <= 0}
+                      >
+                        Discard 1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>
+                        +GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>
+                        -GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>
+                        +Exile
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>
+                        -Exile
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={mulligan}
+                        disabled={(myPlayer?.hand_count ?? 0) === 0}
+                        title="Return your hand to library and shuffle"
+                      >
+                        Mulligan
+                      </button>
+                    </div>
+
+                    <div className="hand-rail">
+                      {myHand.length === 0 ? (
+                        <div className="muted" style={{ alignSelf: 'center' }}>
+                          No cards in hand
+                        </div>
+                      ) : (
+                        myHand.map(c => (
+                          <div key={c.id} className="hand-card">
+                            <CardThumb
+                              name={c.card_name}
+                              set={c.set_code ?? undefined}
+                              number={c.collector_number ?? undefined}
+                              size="sm"
+                            />
+                            <div className="hand-actions">
+                              <button className="btn mini" onClick={() => playFromHand(c.id)}>
+                                Play
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToGY(c.id)}>
+                                GY
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToExile(c.id)}>
+                                Exile
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="quad-bf" data-seat="3">Battlefield — Seat 3 (coming soon)</div>
             </div>
 
-            {/* Left (Seat 4) */}
-            <div className="seat seat-4">
-              <div className="seat-name">{seats[3].name}</div>
-              <div className="seat-meta">
-                Life: {seats[3].life ?? '—'} • Hand: {seats[3].hand ?? '—'} • Library: {seats[3].library ?? '—'} • GY: {seats[3].graveyard ?? '—'} • Exile: {seats[3].exile ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}
-              </div>
-              {mySeat === 4 && (
-                <div className="life-controls">
-                  <button className="btn mini" onClick={() => adjustMyLife(-5)}>-5</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(-1)}>-1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+1)}>+1</button>
-                  <button className="btn mini" onClick={() => adjustMyLife(+5)}>+5</button>
-                  <button className="btn mini" onClick={drawOne}>Draw 1</button>
-                  <button className="btn mini" onClick={discardOne} disabled={(myPlayer?.hand_count ?? 0) <= 0}>Discard 1</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>+GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>-GY</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>+Exile</button>
-                  <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>-Exile</button>
-                  <button className="btn mini" onClick={mulligan} disabled={(myPlayer?.hand_count ?? 0) === 0} title="Return your hand to library and shuffle (counts-only)">Mulligan</button>
-                  <div className="hand-list"><b>My Hand:</b> {myHand.length ? myHand.map(c => c.card_name).join(', ') : '—'}</div>
+            {/* Q4 — Seat 4 */}
+            <div className="quad q4">
+              <div className="seat-panel">
+                <div className="seat-name">{seats[3].name}</div>
+                <div className="seat-meta">
+                  Life: {seats[3].life ?? '—'} • Hand: {seats[3].hand ?? '—'} • Library:{' '}
+                  {seats[3].library ?? '—'} • GY: {seats[3].graveyard ?? '—'} • Exile:{' '}
+                  {seats[3].exile ?? '—'} • Deck: {seats[3].deck ? '✓' : '—'}
                 </div>
-              )}
-            </div>
 
-            <div className="table-center">Battlefield (coming soon)</div>
+                {mySeat === 4 && (
+                  <>
+                    <div className="life-controls">
+                      <button className="btn mini" onClick={() => adjustMyLife(-5)}>
+                        -5
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(-1)}>
+                        -1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+1)}>
+                        +1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyLife(+5)}>
+                        +5
+                      </button>
+                      <button className="btn mini" onClick={drawOne}>
+                        Draw 1
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={discardOne}
+                        disabled={(myPlayer?.hand_count ?? 0) <= 0}
+                      >
+                        Discard 1
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', +1)}>
+                        +GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('graveyard_count', -1)}>
+                        -GY
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', +1)}>
+                        +Exile
+                      </button>
+                      <button className="btn mini" onClick={() => adjustMyZone('exile_count', -1)}>
+                        -Exile
+                      </button>
+                      <button
+                        className="btn mini"
+                        onClick={mulligan}
+                        disabled={(myPlayer?.hand_count ?? 0) === 0}
+                        title="Return your hand to library and shuffle"
+                      >
+                        Mulligan
+                      </button>
+                    </div>
+
+                    <div className="hand-rail">
+                      {myHand.length === 0 ? (
+                        <div className="muted" style={{ alignSelf: 'center' }}>
+                          No cards in hand
+                        </div>
+                      ) : (
+                        myHand.map(c => (
+                          <div key={c.id} className="hand-card">
+                            <CardThumb
+                              name={c.card_name}
+                              set={c.set_code ?? undefined}
+                              number={c.collector_number ?? undefined}
+                              size="sm"
+                            />
+                            <div className="hand-actions">
+                              <button className="btn mini" onClick={() => playFromHand(c.id)}>
+                                Play
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToGY(c.id)}>
+                                GY
+                              </button>
+                              <button className="btn mini" onClick={() => moveHandToExile(c.id)}>
+                                Exile
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              <div className="quad-bf" data-seat="4">Battlefield — Seat 4 (coming soon)</div>
+            </div>
           </div>
         </div>
 
-        <div className="card" style={{background:'#161616'}}>
-          <h3 style={{marginTop:0}}>Players</h3>
-          <div className="grid" style={{gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))'}}>
+        <div className="card" style={{ background: '#161616' }}>
+          <h3 style={{ marginTop: 0 }}>Players</h3>
+          <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill,minmax(240px,1fr))' }}>
             {players.map(p => (
-              <div key={p.user_id} className="card" style={{padding:12}}>
-                <div><b>Seat {p.seat ?? '—'}</b></div>
-                <div>Name: {names[p.user_id]?.nickname ?? p.user_id.slice(0,8)}</div>
+              <div key={p.user_id} className="card" style={{ padding: 12 }}>
+                <div>
+                  <b>Seat {p.seat ?? '—'}</b>
+                </div>
+                <div>Name: {names[p.user_id]?.nickname ?? p.user_id.slice(0, 8)}</div>
                 <div>Life: {p.life}</div>
                 <div>Deck: {p.deck_id ? 'selected' : '—'}</div>
               </div>

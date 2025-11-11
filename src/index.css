@@ -28,29 +28,21 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
 .btn:disabled { opacity:0.6; cursor:not-allowed }
 
 .grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:12px }
-.thumb { display:block; background:#0f0f0f; border:1px solid var(--border); border-radius:10px; overflow:hidden; }
-.thumb img { display:block; width:100%; height:auto; }
-.thumb-fallback { padding:8px; font-size:12px; color:var(--muted); min-height:170px; display:flex; align-items:center; justify-content:center; text-align:center }
 
-.btn.mini { padding:4px 8px; font-size:12px; border-radius:8px }
-.error { color: salmon; }
-
-/* Nicer grid & cards */
-.nice-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap:16px }
+/* Thumbs */
 .thumb { position: relative; background:#0f0f0f; border:1px solid var(--border); border-radius:12px;
          overflow:hidden; box-shadow:0 4px 10px rgba(0,0,0,.35); transition: transform .12s ease, box-shadow .12s ease; }
 .thumb:hover { transform: translateY(-2px); box-shadow:0 10px 18px rgba(0,0,0,.5) }
 .thumb img { display:block; width:100%; height:auto; }
-
-.thumb-wrap { position: relative; }
-.overlay { position:absolute; left:50%; bottom:8px; transform:translateX(-50%); }
+.thumb-fallback { padding:8px; font-size:12px; color:var(--muted); min-height:170px; display:flex; align-items:center; justify-content:center; text-align:center }
+.as-button { all: unset; display:block; width:100%; cursor:pointer }
 
 .count-badge {
   position: absolute;
-  top: -8px;          /* was 8px; move outside */
-  left: -8px;         /* was 8px; move outside */
+  top: -8px;
+  left: -8px;
   z-index: 3;
-  background: #2d74ff;     /* or var(--btn) */
+  background: var(--btn);
   color: #fff;
   font-weight: 700;
   font-size: 12px;
@@ -60,44 +52,87 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
   pointer-events: none;
 }
 
-/* let .thumb be used as a button */
-.as-button { all: unset; display:block; width:100%; cursor:pointer }
-
-/* lightbox */
-.lightbox-backdrop {
-  position: fixed; inset: 0; background: rgba(0,0,0,.75);
-  display: grid; place-items: center; z-index: 1000;
-}
+/* Lightbox */
+.lightbox-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: grid; place-items: center; z-index: 1000; }
 .lightbox-inner { position: relative; max-width: 92vw; max-height: 92vh }
 .lightbox-inner img { max-width: 92vw; max-height: 92vh; display:block; border-radius: 12px }
 .lightbox-close { position:absolute; top:-10px; right:-10px }
 
+/* --- Wider layout only on TablePage --- */
+.container.wide { max-width: 1400px; }
+@media (min-width: 1600px) { .container.wide { max-width: 1600px; } }
+
+/* Full-bleed container for the table page */
+.container.table-container { max-width: 100%; padding-inline: 24px; }
+
+/* The table "card" flexes so the canvas can grow */
+.table-card { display: flex; flex-direction: column; }
+.table-card .table-root { flex: 1; }
+
+/* Fullscreen: only the table-card goes full */
+.table-card:fullscreen, .table-card:-webkit-full-screen {
+  width: 100vw; height: 100vh; margin: 0; border-radius: 0; padding: 16px;
+}
+.table-card:fullscreen .table-root, .table-card:-webkit-full-screen .table-root { min-height: 0; height: 100%; }
+
+/* --- Table canvas (now a 2x2 quadrant grid) --- */
 .table-root {
-  position: relative;
-  min-height: 520px;
-  border: 1px dashed var(--border);
+  width: 100%;
+  min-height: 60vh;
   border-radius: 12px;
+  border: 1px dashed var(--border);
+  padding: 12px;
+  position: relative;
   background:
-    radial-gradient(1200px 600px at 50% 50%, rgba(255,255,255,0.04), transparent 60%) ,
+    radial-gradient(1200px 600px at 50% 50%, rgba(255,255,255,0.04), transparent 60%),
     linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0));
 }
 
-.table-center {
-  position: absolute;
-  inset: 20% 12%;                /* more room for top/bottom seats */
+.table-root.grid-4 {
   display: grid;
-  place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  font-size: 14px;
-  color: var(--muted);
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: minmax(320px, 1fr) minmax(320px, 1fr);
+  gap: 16px;
+}
+
+/* Prevent a wide hand from expanding the grid column */
+.table-root.grid-4 > .quad { 
+  min-width: 0;           /* allow shrinking inside the grid column */
+  min-height: 0;          /* same idea for row sizing */
+}
+
+.seat-panel { 
+  min-width: 0;           /* don't let inner panel force width */
+}
+
+/* Hand stays one row and scrolls horizontally */
+.hand-rail {
+  display: flex;
+  flex-wrap: nowrap;      /* no wrapping -> single row */
+  white-space: nowrap;    /* belt & suspenders */
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Cards are fixed-width items so scrolling kicks in instead of reflow */
+.hand-card {
+  flex: 0 0 auto;         /* don't shrink, don't wrap */
 }
 
 
-/* seat boxes */
-.seat {
-  position: absolute;
-  width: 260px;
+/* Each quadrant holds [seat panel] over [battlefield] */
+.quad {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  background: rgba(255,255,255,0.02);
+}
+
+/* Seat panel (replaces the old absolutely-positioned seats) */
+.seat-panel {
   padding: 10px 12px;
   border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.35);
@@ -108,33 +143,40 @@ textarea { width:100%; font-family: ui-monospace, SFMono-Regular, Menlo, Consola
 .seat-name { font-weight: 700; font-size: 16px }
 .seat-meta { font-size: 12px; opacity: 0.85; margin-top: 2px }
 
-/* positions (desktop): two on top, two on bottom */
-.seat-1 { top: 12px; left: 12px;  transform: none; }
-.seat-2 { top: 12px; right: 12px; transform: none; }
-.seat-3 { bottom: 12px; left: 12px;  transform: none; }
-.seat-4 { bottom: 12px; right: 12px; transform: none; }
-
-@media (max-width: 800px) {
-  .table-root { min-height: 700px; }
-  .table-center { inset: 46% 6%; }
-  .seat { width: calc(100% - 24px); left: 12px !important; right: 12px !important; transform: none !important; }
-  .seat-1 { top: 12px; }
-  .seat-2 { top: 146px; }
-  .seat-3 { top: 280px; }
-  .seat-4 { top: 414px; }
+/* Battlefield box inside each quadrant */
+.quad-bf {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.02);
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  min-height: 180px;
+  /* pointer events enabled for future interactions */
 }
 
+/* Controls */
+.life-controls { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 
-/* Wider layout only on TablePage */
-.container.wide { max-width: 1400px; }        /* bump to taste */
-@media (min-width: 1600px) { .container.wide { max-width: 1600px; } }
-
-.life-controls {
+/* Hand (horizontal, scrollable) */
+.hand-rail {
   display: flex;
-  gap: 6px;
-  margin-top: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 8px 4px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  scrollbar-width: thin;
 }
+.hand-rail::-webkit-scrollbar { height: 8px; }
+.hand-rail::-webkit-scrollbar-thumb { background: #333; border-radius: 6px; }
 
-.hand-list { margin-top: 6px; font-size: 12px; opacity: 0.9; }
+.hand-card { flex: 0 0 auto; display: grid; gap: 6px; justify-items: center; }
+.hand-card .thumb { width: 145px; height: auto; }
 
+.hand-actions { display: flex; gap: 6px; }
+.hand-actions .btn.mini { padding: 4px 8px; font-size: 12px; }
+
+/* Remove old absolute seat/battlefield styles (superseded by quadrants) */
+/* (Intentionally omitted: .seat, .seat-1..4, .table-center blocking) */

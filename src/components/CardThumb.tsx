@@ -3,31 +3,73 @@ import { getCardImagesFor, type ImgPair } from '../lib/scryfall'
 
 type Props = {
   name: string
-  set_code?: string | null
-  collector_number?: string | null
+  /** Scryfall set code, optional */
+  set?: string
+  /** Collector number (string in Scryfall), optional */
+  number?: string
+  /** visual size */
+  size?: 'sm' | 'md' | 'lg'
+  /** optional className pass-through */
+  className?: string
 }
 
-export default function CardThumb({ name, set_code, collector_number }: Props) {
-  const [img, setImg] = useState<ImgPair | null>(null)
+export default function CardThumb({
+  name,
+  set,
+  number,
+  size = 'md',
+  className,
+}: Props) {
+  const [imgs, setImgs] = useState<ImgPair | null>(null)
 
   useEffect(() => {
-    let alive = true
-    getCardImagesFor(name, set_code ?? undefined, collector_number ?? undefined)
-      .then((v: ImgPair | null) => { if (alive) setImg(v) })
-    return () => { alive = false }
-  }, [name, set_code, collector_number])
+    let cancelled = false
+    ;(async () => {
+      const data = await getCardImagesFor(name, set, number)
+      if (!cancelled) setImgs(data)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [name, set, number])
 
-  if (!img) {
+  const src =
+    size === 'sm' ? imgs?.small ?? imgs?.normal : imgs?.normal ?? imgs?.small
+
+  // fallback rectangle if we have nothing yet
+  if (!src) {
+    const h = size === 'sm' ? 180 : 310
+    const w = Math.round(h * 0.72)
     return (
-      <div className="thumb">
-        <div className="thumb-fallback">{name}</div>
-      </div>
+      <div
+        className={className}
+        style={{
+          width: w,
+          height: h,
+          borderRadius: 8,
+          background: 'linear-gradient(180deg,#1b1b1b,#0f0f0f)',
+          border: '1px solid var(--border)',
+        }}
+        title={name}
+      />
     )
   }
 
   return (
-    <a className="thumb" href={img.normal} target="_blank" rel="noreferrer" title={name}>
-      <img src={img.small} alt={name} />
-    </a>
+    <img
+      className={className}
+      src={src}
+      alt={name}
+      title={name}
+      style={{
+        display: 'block',
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        width: size === 'sm' ? 180 : 310,
+        height: 'auto',
+        userSelect: 'none',
+        pointerEvents: 'none',
+      }}
+    />
   )
 }
